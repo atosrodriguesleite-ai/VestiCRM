@@ -2358,6 +2358,13 @@ function NewProductModal({
             {!semCores && (
             <div>
               <label className={label}>Cores (grade) *</label>
+              {/* a tela abria com UMA cor marcada e nada dizia que dá para
+                  marcar várias — o dono achou que só nascia uma cor por
+                  produto (03/11/2026) */}
+              <p className="text-xs text-gray-500 mb-1.5">
+                Toque em todas as cores da grade — cada toque marca ou desmarca.{" "}
+                <span className="font-medium text-gray-700">{selColors.length} marcada{selColors.length === 1 ? "" : "s"}</span>
+              </p>
               <div className="flex flex-wrap gap-1.5">
                 {libraryColors.map((c) => (
                   <button
@@ -2389,6 +2396,10 @@ function NewProductModal({
             )}
             <div>
               <label className={label}>Tamanhos *</label>
+              <p className="text-xs text-gray-500 mb-1.5">
+                Toque em todos os tamanhos da grade.{" "}
+                <span className="font-medium text-gray-700">{selSizes.length} marcado{selSizes.length === 1 ? "" : "s"}</span>
+              </p>
               <div className="flex flex-wrap gap-1.5">
                 {librarySizes.map((s) => (
                   <button
@@ -2414,6 +2425,16 @@ function NewProductModal({
                 className={input}
                 inputMode="numeric"
               />
+              <p className="text-xs text-gray-500 mt-1.5">
+                {(() => {
+                  const cores = semCores ? 1 : selColors.length;
+                  const n = cores * selSizes.length;
+                  if (n === 0) return "Marque as cores e os tamanhos para montar a grade.";
+                  return `O produto nasce com ${n} variaç${n === 1 ? "ão" : "ões"}${
+                    semCores ? "" : ` (${cores} cor${cores === 1 ? "" : "es"} × ${selSizes.length} tamanho${selSizes.length === 1 ? "" : "s"})`
+                  }, cada uma com este estoque. Dá para ajustar depois na ficha.`;
+                })()}
+              </p>
             </div>
             <div>
               <label className={label}>Fotos</label>
