@@ -14,9 +14,10 @@ export async function POST() {
     const settings = await db.commSettings.findUnique({
       where: { companyId: user.companyId },
     });
-    if (settings?.evolutionInstance) {
-      await evoLogout(settings.evolutionInstance).catch(() => {});
-    }
+    // a loja é limpa ANTES do logout (RN-106): o "fechou" (401) que o logout
+    // provoca chega ao webhook com o token antigo, que já não existe — e é
+    // ignorado. Na ordem inversa ele virava queda no histórico e alarme
+    // "WhatsApp desconectou" para quem acabou de apertar Desconectar.
     await db.commSettings.updateMany({
       where: { companyId: user.companyId },
       data: {
@@ -24,9 +25,14 @@ export async function POST() {
         evolutionPhone: null,
         evolutionInstance: null,
         evolutionWebhookToken: null,
+        // RN-106: o envio sem eco desta conexão não vale para a próxima
+        envioSemEcoDesde: null,
         ...(settings?.activeProvider === "EVOLUTION" ? { activeProvider: "MOCK" } : {}),
       },
     });
+    if (settings?.evolutionInstance) {
+      await evoLogout(settings.evolutionInstance).catch(() => {});
+    }
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof AuthError)

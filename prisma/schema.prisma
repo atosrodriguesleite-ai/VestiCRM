@@ -1192,6 +1192,21 @@ model CommSettings {
   // webhook e pelo vigia, que já carregam esta linha — um registro na
   // Central de Comunicação é rastro, não estado, achado da revisão)
   reinicioPedidoEm      DateTime?
+  // RN-106 · O PULSO DO WHATSAPP. Quando chegou pelo webhook a última
+  // mensagem (o "sinal"; regravado no máximo a cada 5 s, ou na hora quando
+  // há envio esperando eco) e desde quando o PRIMEIRO envio feito pelo
+  // sistema espera o eco — o eco vem em segundos; sem ele há 12 min, o
+  // caminho das mensagens quebrou (o incidente de 02/11/2026)
+  webhookUltimoSinalEm  DateTime?
+  envioSemEcoDesde      DateTime?
+  // a última cura AUTOMÁTICA (no máximo uma vez a cada 6 h por loja; a queda
+  // que só volta com QR também a carimba, para o vigia não reiniciá-la) e o
+  // alarme do webhook calado, uma vez por episódio
+  autoCuraEm            DateTime?
+  webhookCaladoAvisadoEm DateTime?
+  // o último reinício que o servidor ACEITOU (o do botão ou o da cura): o
+  // envio sem eco de antes dele espera a próxima prova
+  ultimoReinicioEm      DateTime?
   // A LOJA JÁ TEVE WHATSAPP? (RN-049) Carimbado na PRIMEIRA conexão real
   // (Evolution conectado ou API oficial configurada) e NUNCA apagado — o
   // Desconectar zera instância, telefone e provedor, então só este carimbo

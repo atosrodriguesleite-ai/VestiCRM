@@ -15,6 +15,7 @@ import {
 } from "./evolution";
 import { notifyMentions } from "../notify";
 import { reciboMaisForte, reciboAvanca } from "./recibo";
+import { marcarEnvioSemEco } from "./pulso-do-webhook";
 import {
   AVISO_SEM_CONFIRMACAO,
   confirmacaoVenceu,
@@ -205,6 +206,8 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
         }
       }
 
+      // RN-106: o instante ANTES de o pedido sair — o eco só pode vir depois
+      const enviadoDesde = new Date();
       const result = await provider.send({
         to: conv.customer.phone,
         text: input.mediaType && input.mediaType !== "TEXT" ? undefined : input.body,
@@ -237,6 +240,10 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
         // (cliente online + provedor lento) — reaplica o que ficou órfão
         if (result.externalId) {
           await aplicarRecibosOrfaos(input.companyId, result.externalId).catch(() => {});
+        }
+        // RN-106: o envio saiu — agora espera o eco do webhook (o teste do eco)
+        if (conv.channel === "WHATSAPP" && activeProvider === "EVOLUTION") {
+          await marcarEnvioSemEco(input.companyId, enviadoDesde);
         }
       } else if (situacaoDoEnvio(result) === "confirmando") {
         // TEMPO ESGOTADO NÃO É FALHA (RN-048). A mensagem pode ter sido
@@ -401,6 +408,7 @@ export async function resendMessage(
   const started = Date.now();
   const { activeProvider, creds } = await loadCredentials(companyId);
   const provider = resolveProvider(message.channel, activeProvider, creds);
+  const enviadoDesde = new Date();
   const result = await provider.send({
     to: message.conversation.customer.phone,
     text: message.mediaType === "TEXT" ? message.body : undefined,
@@ -423,6 +431,10 @@ export async function resendMessage(
   // O REENVIO SEGUE A MESMA RÉGUA (RN-048): estourou o tempo, volta para
   // "confirmando" — nunca para o vermelho que convida a um terceiro envio.
   if (!result.ok && result.conexaoFechada) await conferirDepois(companyId);
+  // RN-106: o reenvio que saiu também espera o eco
+  if (result.ok && message.channel === "WHATSAPP" && activeProvider === "EVOLUTION") {
+    await marcarEnvioSemEco(companyId, enviadoDesde);
+  }
   const dados = result.ok
     ? { status: "REENVIADA" as const, externalId: result.externalId, error: null }
     : situacaoDoEnvio(result) === "confirmando"

@@ -169,6 +169,12 @@ export async function reiniciarConexaoDaLoja(
     };
   }
   const demorou = !r.ok && !!r.incerto;
+  // RN-106: o reinício ACEITO (ou que só demorou — provavelmente aconteceu)
+  // marca a fronteira do eco: o envio sem eco de antes dele não prova nada
+  // sobre a conexão de agora e espera a próxima mensagem. Só aqui, depois do
+  // aceite: carimbado antes, a recusa deixava o painel dizendo "reiniciada"
+  // sem ter reiniciado (achado da revisão)
+  await db.commSettings.update({ where: { companyId }, data: { ultimoReinicioEm: pedidoEm } }).catch(() => {});
   // o servidor leva um instante para derrubar e reabrir a sessão — reaplicar
   // o webhook NA HORA podia levar uma recusa passageira da instância em
   // reinício (e a frase diria "avisos NÃO reaplicados" sem motivo, achado da
@@ -231,6 +237,7 @@ export async function reiniciarConexaoDaLoja(
       where: { companyId, evolutionStatus: { not: "CONECTADO" } },
       data: { evolutionStatus: "CONECTADO", evolutionDownSince: null, evolutionAlertAt: null },
     });
+
     // a sessão voltou: a janela de silêncio encolhe para os próximos 15 s (o
     // aviso do "fechou" deste reinício que ainda esteja a caminho segue
     // calado) — 3 minutos inteiros calariam uma queda de VERDADE logo depois

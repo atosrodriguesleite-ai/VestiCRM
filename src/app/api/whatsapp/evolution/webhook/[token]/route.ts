@@ -11,7 +11,9 @@ import {
   MS_ORCAMENTO_MIDIA_WEBHOOK,
 } from "@/lib/comm/midia-pendente";
 import { findCustomerByPhone, nomeProvisorio, normalizePhone } from "@/lib/intake";
-import { alertWhatsappDown, logServerError } from "@/lib/health";
+import { alertWhatsappDown, cuidarDaQuedaDeRede, logServerError } from "@/lib/health";
+import { marcarSinalDoWebhook, registrarQueda } from "@/lib/comm/pulso-do-webhook";
+import { motivoDaQueda, quedaTemCura } from "@/lib/comm/pulso-regra";
 import { adCode, campanhaDoAnuncio } from "@/lib/ad-match";
 import { formatPhone } from "@/lib/format";
 import { citacaoWA, lerMensagemWA, soRecadoDoProtocolo } from "@/lib/comm/wa-message";
@@ -55,7 +57,11 @@ import { concluirTarefasDeContato } from "@/lib/contato-feito";
  * o download tem orçamento próprio e curto lá dentro: o que não couber vai
  * para a fila de repesca em vez de morrer.
  */
-export const maxDuration = 60;
+// 180 s (era 60): a queda de rede avisada aqui (RN-106) espera 1 min depois
+// da resposta e então tenta a cura pela porta do botão de reiniciar, que no
+// pior caso soma várias chamadas de 15 s, as esperas e as sondas. O
+// orçamento das mídias (RN-028) é dele mesmo e não muda com isto.
+export const maxDuration = 180;
 
 /**
  * Aplica uma edição na mensagem gravada — e ACORDA O SYNC.
@@ -326,6 +332,18 @@ export async function POST(
   const companyId = settings.companyId;
   const event = body.event.toLowerCase().replace(/_/g, ".");
 
+  // RN-106 · O PULSO: mensagem chegando pelo webhook prova que o caminho está
+  // vivo — inclusive o ECO do que a loja acabou de enviar, que é o que o
+  // teste do eco espera. Só `messages.upsert` conta: é o aviso que traz as
+  // mensagens das clientes, e um caminho que ainda entrega recibos mas
+  // perdeu as mensagens não pode passar por vivo. Depois da resposta (não
+  // atrasa a mensagem da cliente), com a hora em que o aviso CHEGOU — a
+  // gravação condicionada aguenta chegar depois do envio. Nunca lança.
+  if (event === "messages.upsert") {
+    const chegouEm = new Date();
+    after(() => marcarSinalDoWebhook(companyId, chegouEm));
+  }
+
   // A LOJA CONECTADA ANTES DE UM EVENTO NOVO É REASSINADA DE CARONA: depois
   // da resposta (o servidor espera o 200 rápido), uma vez só por loja — o
   // carimbo em dia não vai ao servidor. Sem isso, a mensagem editada só
@@ -336,7 +354,7 @@ export async function POST(
 
   try {
     if (event === "connection.update") {
-      const d = body.data as { state?: string; wuid?: string } | undefined;
+      const d = body.data as { state?: string; wuid?: string; statusReason?: unknown } | undefined;
       const state = d?.state;
       // RN-105: o "fechou" que o próprio REINÍCIO pedido pela loja provoca não
       // é queda — sem isto cada clique em "Reiniciar conexão" marcava a loja
@@ -357,6 +375,12 @@ export async function POST(
                   activeProvider: "EVOLUTION",
                   evolutionDownSince: null,
                   evolutionAlertAt: null,
+                  // RN-106: a conexão (re)abriu — o envio sem eco de ANTES
+                  // não prova nada sobre a de agora; o próximo envio decide.
+                  // Menos no "open" de um REINÍCIO (botão ou cura): ali a
+                  // prova fica, marcada como de antes dele, e o painel diz
+                  // "esperando a próxima mensagem" em vez de pintar verde
+                  ...(reinicioEmCurso(settings.reinicioPedidoEm) ? {} : { envioSemEcoDesde: null }),
                   ...(d?.wuid ? { evolutionPhone: jidToPhone(d.wuid) } : {}),
                 }
               : {}),
@@ -364,14 +388,44 @@ export async function POST(
         });
         // a loja passou a TER WhatsApp: fica carimbado para sempre (RN-049)
         if (state === "open") await registrarPrimeiraConexao(companyId);
-        // ESTAVA conectado e caiu → avisa a loja NA HORA (sino + push).
-        // "close" durante a leitura do QR não conta (não estava conectado).
-        if (state === "close" && settings.evolutionStatus === "CONECTADO" && !fechouPeloReinicio) {
-          await db.commSettings.update({
-            where: { companyId },
-            data: { evolutionDownSince: new Date() },
-          });
-          await alertWhatsappDown(companyId).catch(() => {});
+        // ESTAVA conectado e caiu (ou já estava num episódio de queda e
+        // chegou um motivo novo — o 401 que vem depois de uma queda de rede)
+        // "close" durante a leitura do QR de uma loja que nunca caiu não conta
+        const estava = settings.evolutionStatus === "CONECTADO";
+        if (state === "close" && !fechouPeloReinicio && (estava || settings.evolutionDownSince)) {
+          if (estava) {
+            await db.commSettings.update({
+              where: { companyId },
+              data: { evolutionDownSince: new Date() },
+            });
+          }
+          // RN-106: POR QUE caiu — o código que o WhatsApp manda junto. Fica
+          // na Central de Comunicação e no painel de Saúde: em poucas semanas
+          // diz se a causa é o celular, o servidor ou o próprio WhatsApp. Fora
+          // da queda em si, só o motivo NOVO que pede QR: o QR que vence
+          // enquanto alguém tenta religar também "fecha", e encheria o
+          // histórico de falsas quedas
+          if (estava || !quedaTemCura(d?.statusReason)) {
+            await registrarQueda(companyId, motivoDaQueda(d?.statusReason), {
+              statusReason: d?.statusReason ?? null,
+              origem: "webhook",
+            });
+          }
+          if (!quedaTemCura(d?.statusReason)) {
+            // RN-106: a queda que só volta com o QR Code (desconectada pelo
+            // celular, tomada por outra conexão…) alarma NA HORA, e a vez da
+            // cura é carimbada — o vigia, que não vê o código, não a reinicia
+            // por engano (o reinício gastaria a vez e atrasaria o alarme)
+            await db.commSettings
+              .updateMany({ where: { companyId }, data: { autoCuraEm: new Date() } })
+              .catch(() => {});
+            await alertWhatsappDown(companyId).catch(() => {});
+          } else if (estava) {
+            // RN-106: a de rede espera 1 min (o WhatsApp costuma religar
+            // sozinho), tenta a cura e, se não voltou, alarma — depois da
+            // resposta, que o servidor espera rápido
+            after(() => cuidarDaQuedaDeRede(companyId));
+          }
         }
       }
     }

@@ -36,6 +36,10 @@ import {
   MINUTOS_PRESA,
   type NivelSaude,
 } from "@/lib/health-wa";
+import { leituraDoPulso } from "@/lib/comm/pulso-regra";
+
+/** RN-106: o que entra no histórico de quedas e consertos do WhatsApp. */
+const TIPOS_DO_HISTORICO = ["wa.conexao.queda", "wa.conexao.cura-automatica", "wa.webhook.calado"];
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +94,7 @@ export default async function HealthPage() {
     telasVersaoVelha24,
     recusasCatalogo,
     aberturasIncompletas,
+    historicoWa,
   ] = await Promise.all([
     db.systemHealth.findUnique({ where: { id: "main" } }),
     db.commSettings.findMany({
@@ -99,6 +104,9 @@ export default async function HealthPage() {
         evolutionStatus: true,
         evolutionPhone: true,
         evolutionDownSince: true,
+        envioSemEcoDesde: true,
+        webhookUltimoSinalEm: true,
+        ultimoReinicioEm: true,
       },
     }),
     // RN-066: "versão velha" é esperado depois de cada entrega e se cura
@@ -165,10 +173,18 @@ export default async function HealthPage() {
       take: 20,
       select: { id: true, createdAt: true, path: true, message: true, detail: true },
     }),
+    // RN-106: quedas (com o motivo que o WhatsApp mandou), curas automáticas
+    // e alarmes de webhook calado, 14 dias — é daqui que sai a CAUSA
+    db.commEvent.findMany({
+      where: { type: { in: TIPOS_DO_HISTORICO }, companyId: { not: null }, createdAt: { gte: new Date(agora.getTime() - 14 * 24 * 60 * 60 * 1000) } },
+      orderBy: { createdAt: "desc" },
+      take: 40,
+      select: { id: true, companyId: true, type: true, status: true, error: true, createdAt: true },
+    }),
   ]);
 
   const companies = await db.company.findMany({
-    where: { id: { in: storesRaw.map((s) => s.companyId) } },
+    where: { id: { in: [...new Set([...storesRaw.map((s) => s.companyId), ...historicoWa.flatMap((e) => (e.companyId ? [e.companyId] : []))])] } },
     select: { id: true, name: true },
   });
   const nameById = new Map(companies.map((c) => [c.id, c.name]));
@@ -187,7 +203,13 @@ export default async function HealthPage() {
           presas: n(t?.presas),
           falhas24: n(t?.falhas24),
           jaTeveTrafego: n(t?.total_recebidas) > 0,
+          envioSemEcoDesde: s.envioSemEcoDesde,
+          reiniciadoEm: s.ultimoReinicioEm,
         },
+        agora
+      );
+      const pulso = leituraDoPulso(
+        { conectado, envioSemEcoDesde: s.envioSemEcoDesde, ultimoSinal: s.webhookUltimoSinalEm, reiniciadoEm: s.ultimoReinicioEm },
         agora
       );
       return {
@@ -206,6 +228,8 @@ export default async function HealthPage() {
         ultimaRecebida,
         ultimaEnviada: t?.ultima_enviada ?? null,
         diag,
+        pulso,
+        reiniciadoEm: s.ultimoReinicioEm,
       };
     })
     // pior primeiro: quem precisa de ação aparece em cima
@@ -433,6 +457,24 @@ export default async function HealthPage() {
                   {/* RN-105: a loja muda se reinicia daqui, sem Hostinger */}
                   {l.conectado && <ReiniciarConexao companyId={l.id} nome={l.nome} />}
 
+                  {/* RN-106: o pulso — o eco dos envios está voltando? */}
+                  <p
+                    className={`mt-1.5 text-xs ${
+                      l.pulso.tom === "ok"
+                        ? "text-emerald-700"
+                        : l.pulso.tom === "calado"
+                          ? "font-semibold text-rose-600"
+                          : "text-gray-500"
+                    }`}
+                  >
+                    {l.pulso.texto}
+                    {l.reiniciadoEm && agora.getTime() - l.reiniciadoEm.getTime() < 7 * 24 * 60 * 60 * 1000 && (
+                      <span className="ml-1 text-gray-400">
+                        · último reinício há {desde(l.reiniciadoEm)}
+                      </span>
+                    )}
+                  </p>
+
                   {/* números do dia a dia */}
                   <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-5">
                     <div>
@@ -507,6 +549,55 @@ export default async function HealthPage() {
               );
             })}
           </div>
+        )}
+      </Card>
+
+      {/* ---- RN-106: quedas e consertos do WhatsApp, com o motivo ---- */}
+      <Card className="p-5 mb-6">
+        <h2 className="font-semibold flex items-center gap-2 mb-1">
+          <Activity className="size-4 text-slate-500" />
+          Quedas e consertos do WhatsApp (14 dias)
+        </h2>
+        <p className="text-xs text-gray-400 mb-3">
+          Cada queda com o motivo que o WhatsApp informou, as vezes em que o sistema reiniciou a
+          conexão sozinho e os alarmes de &quot;eco que não voltou&quot;. Muitas quedas da mesma loja ou
+          pelo mesmo motivo apontam a causa.
+        </p>
+        {historicoWa.length === 0 ? (
+          <p className="text-sm text-gray-400">Nenhuma queda nos últimos 14 dias. ✅</p>
+        ) : (
+          <ul className="divide-y divide-gray-100 text-sm">
+            {historicoWa.map((e) => {
+              const rotulo =
+                e.type === "wa.conexao.queda"
+                  ? "Caiu"
+                  : e.type === "wa.webhook.calado"
+                    ? "Eco não voltou (alarme)"
+                    : e.status === "OK"
+                      ? "Religou sozinho"
+                      : "Tentou religar sozinho — não voltou";
+              return (
+                <li key={e.id} className="flex flex-wrap items-baseline gap-x-2 py-1.5">
+                  <span className="text-xs tabular-nums text-gray-400">{fmt(e.createdAt)}</span>
+                  <span className="font-medium text-slate-800">
+                    {(e.companyId && nameById.get(e.companyId)) ?? e.companyId}
+                  </span>
+                  <span
+                    className={
+                      e.type === "wa.conexao.cura-automatica" && e.status === "OK"
+                        ? "text-emerald-700"
+                        : "text-rose-600"
+                    }
+                  >
+                    {rotulo}
+                  </span>
+                  {e.error && e.type !== "wa.conexao.cura-automatica" && (
+                    <span className="text-xs text-gray-500">— {e.error}</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         )}
       </Card>
 
