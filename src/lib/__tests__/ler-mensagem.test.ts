@@ -3,14 +3,22 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   candidatosDeCor,
+  candidatosDaLinha,
+  candidatosDeProduto,
+  casarPeca,
+  casarPecaNosCandidatos,
   desachatarMensagem,
+  fraseSemVariacao,
   lerDinheiro,
   lerMensagemDePedido,
   lerTamanhos,
   partirItem,
   pecasLidas,
-  separarProdutoECor,
 } from "../catalogo/ler-mensagem";
+
+/** o primeiro candidato no nome mais longo (o atalho das provas de nome) */
+const separarProdutoECor = <T extends { id: string; name: string }>(descricao: string, produtos: T[]) =>
+  candidatosDeProduto(descricao, produtos)[0] ?? null;
 import { CAMPOS_DO_PEDIDO } from "../catalogo/campos-do-pedido";
 
 // Guarda RN-012 (índice em docs/regras.md; texto no CLAUDE.md).
@@ -417,11 +425,192 @@ describe("mensagem ACHATADA pelo navegador do anúncio (Entre Linhas, 04/08/2026
   });
 
   it("o casamento usa o título da seção quando o item vem só com a cor", () => {
+    const produtos = [
+      {
+        id: "p1",
+        name: "Blusa Clássica Tule",
+        variants: [
+          { id: "v1", color: "Branco", size: "Único", stock: 5 },
+          { id: "v2", color: "Preto", size: "Único", stock: 5 },
+        ],
+      },
+    ];
+    const r = casarPeca(
+      { descricao: "Branco", categoria: "Blusa Clássica Tule" },
+      "Único",
+      4,
+      produtos
+    );
+    expect(r?.produto.id).toBe("p1");
+    expect(r?.variante?.id).toBe("v1");
+    // e a rota passa pela régua única da lib, não por conta própria
     const rota = readFileSync(
       join(process.cwd(), "src/app/api/orders/ler-mensagem/route.ts"),
       "utf8"
     );
-    expect(rota).toContain("separarProdutoECor(`${item.categoria} ${item.descricao}`");
+    expect(rota).toContain("candidatosDaLinha(item, produtos)");
+    expect(rota).toContain("casarPecaNosCandidatos(candidatos, t.tamanho, t.quantidade)");
+  });
+});
+
+/**
+ * LOJA QUE CADASTRA UM PRODUTO POR COR, COM O MESMO NOME (Toque Leve,
+ * 03/11/2026): o pedido da Tânia tinha seis "Regata Alça" de cores
+ * diferentes e a prévia mostrava TODAS como "cafe · M" — o leitor ficava
+ * com o primeiro xará, não achava "Amarelo Manteiga" nele e, como o
+ * produto só tem uma cor, trocava calado pela Café. Peça errada reservada
+ * em silêncio é o pior resultado possível: a cliente recebe a cor que não
+ * pediu e a Amarelo Manteiga segue na arara "vendida".
+ */
+describe("um produto por cor com o mesmo nome (Toque Leve, 03/11/2026)", () => {
+  const regata = (id: string, cor: string, tamanhos: string[], stock = 3) => ({
+    id,
+    name: "Regata Alça",
+    variants: tamanhos.map((size) => ({ id: `${id}-${size}`, color: cor, size, stock })),
+  });
+  const produtos = [
+    regata("cafe", "cafe", ["P", "M", "G"]),
+    regata("manteiga", "Amarelo Manteiga", ["M", "G"]),
+    regata("ceu", "Azul Céu", ["G"]),
+    regata("terracota", "Terracota", ["M"]),
+    { id: "nad", name: "Regata Alça Nadador", variants: [{ id: "nad-M", color: "Preto", size: "M", stock: 2 }] },
+  ];
+
+  it("todos os xarás empatados no nome mais longo são candidatos", () => {
+    const c = candidatosDeProduto("Regata Alça Amarelo Manteiga", produtos);
+    expect(c.map((x) => x.produto.id)).toEqual(["cafe", "manteiga", "ceu", "terracota"]);
+    expect(c.every((x) => x.cor === "Amarelo Manteiga")).toBe(true);
+    // o nome mais longo continua vencendo quando casa inteiro
+    expect(candidatosDeProduto("Regata Alça Nadador Preto", produtos).map((x) => x.produto.id)).toEqual([
+      "nad",
+    ]);
+  });
+
+  it("a COR escolhe o produto entre os xarás (cor de duas palavras inclusive)", () => {
+    const r = casarPeca({ descricao: "Regata Alça Amarelo Manteiga", categoria: null }, "M", 1, produtos);
+    expect(r?.produto.id).toBe("manteiga");
+    expect(r?.variante?.id).toBe("manteiga-M");
+    const ceu = casarPeca({ descricao: "Regata Alça Azul Céu", categoria: null }, "G", 1, produtos);
+    expect(ceu?.variante?.id).toBe("ceu-G");
+    // caixa e acento não atrapalham
+    const cafe = casarPeca({ descricao: "Regata Alça Café", categoria: null }, "P", 1, produtos);
+    expect(cafe?.variante?.id).toBe("cafe-P");
+  });
+
+  it("cor que NÃO existe nunca é trocada por outra — a linha volta sem variação", () => {
+    const r = casarPeca({ descricao: "Regata Alça Verde Militar", categoria: null }, "M", 1, produtos);
+    expect(r).not.toBeNull();
+    expect(r?.variante).toBeNull();
+    expect(r?.cor).toBe("Verde Militar");
+  });
+
+  it("o tamanho que só existe em outro xará da mesma cor não cai na cor errada", () => {
+    // a Amarelo Manteiga não tem P; a Café tem — e NÃO pode virar Café
+    const r = casarPeca({ descricao: "Regata Alça Amarelo Manteiga", categoria: null }, "P", 1, produtos);
+    expect(r?.variante).toBeNull();
+  });
+
+  it("a mensagem inteira da Tânia sai com cada peça na sua cor", () => {
+    const msg = `*Novo pedido — Toque Leve*
+
+*Regata Alça*
+• Regata Alça Amarelo Manteiga — M ×1  (1 peça · R$ 32,00)
+• Regata Alça cafe — M ×1  (1 peça · R$ 32,00)
+• Regata Alça Azul Céu — G ×1  (1 peça · R$ 32,00)
+• Regata Alça Terracota — M ×1  (1 peça · R$ 32,00)
+
+*Total:* 4 peças · R$ 128,00
+
+*Cliente*
+Nome: Maria Tânia Batista França
+Telefone: (33) 99995-6375
+CEP: 39625000
+
+_Valores sujeitos a confirmação._`;
+    const lido = lerMensagemDePedido(msg);
+    const cores = lido.itens.map((i) =>
+      casarPeca(i, i.tamanhos[0].tamanho, i.tamanhos[0].quantidade, produtos)?.variante?.color
+    );
+    expect(cores).toEqual(["Amarelo Manteiga", "cafe", "Azul Céu", "Terracota"]);
+  });
+
+  it("cadastro em dobro da mesma cor: vale o que tem estoque para a quantidade", () => {
+    const dobro = [regata("a", "Preto", ["M"], 0), regata("b", "Preto", ["M"], 4)];
+    expect(casarPeca({ descricao: "Regata Alça Preto", categoria: null }, "M", 2, dobro)?.produto.id).toBe("b");
+    // nenhum cobre: o de maior estoque
+    const pouco = [regata("a", "Preto", ["M"], 1), regata("b", "Preto", ["M"], 3)];
+    expect(casarPeca({ descricao: "Regata Alça Preto", categoria: null }, "M", 9, pouco)?.produto.id).toBe("b");
+  });
+
+  it("sem cor no texto (loja que esconde as cores): uma variação do tamanho é ela, duas é dúvida DITA", () => {
+    const uma = [regata("cafe", "cafe", ["M"])];
+    expect(casarPeca({ descricao: "Regata Alça", categoria: null }, "M", 1, uma)?.variante?.id).toBe("cafe-M");
+    const r = casarPeca({ descricao: "Regata Alça", categoria: null }, "M", 1, produtos);
+    expect(r?.produto.id).toBe("cafe");
+    expect(r?.variante).toBeNull();
+    expect(r?.motivo).toBe("mais-de-uma-opcao");
+    expect(fraseSemVariacao(r!.motivo!, "", "M", 4)).toContain("4 cadastros com esse nome");
+    // um produto só, com duas cores no tamanho: a dúvida é a cor
+    const duasCores = [
+      { id: "x", name: "Regata Alça", variants: [
+        { id: "x-M-p", color: "Preto", size: "M", stock: 1 },
+        { id: "x-M-b", color: "Branco", size: "M", stock: 1 },
+      ] },
+    ];
+    const d = casarPeca({ descricao: "Regata Alça", categoria: null }, "M", 1, duasCores);
+    expect(d?.motivo).toBe("mais-de-uma-opcao");
+    expect(fraseSemVariacao(d!.motivo!, "", "M", 1)).toContain("mais de uma no tamanho M");
+    // tamanho que não existe
+    const t = casarPeca({ descricao: "Regata Alça", categoria: null }, "XGG", 1, uma);
+    expect(t?.motivo).toBe("tamanho-nao-existe");
+  });
+
+  it("cor que não existe traz o motivo certo", () => {
+    const r = casarPeca({ descricao: "Regata Alça Verde Militar", categoria: null }, "M", 1, produtos);
+    expect(r?.motivo).toBe("cor-nao-existe");
+    expect(fraseSemVariacao(r!.motivo!, r!.cor, "M", 4)).toBe("Sem essa variação (Verde Militar M)");
+  });
+
+  it("o nome mais curto é RESERVA: só entra quando o mais longo não tem a cor", () => {
+    const loja = [
+      { id: "curto", name: "Regata Alça", variants: [{ id: "curto-G", color: "Azul Céu", size: "G", stock: 2 }] },
+      { id: "longo", name: "Regata Alça Azul", variants: [{ id: "longo-G", color: "Marinho", size: "G", stock: 2 }] },
+    ];
+    // "Regata Alça Azul" + "Céu" não existe; "Regata Alça" + "Azul Céu" existe
+    const r = casarPeca({ descricao: "Regata Alça Azul Céu", categoria: null }, "G", 1, loja);
+    expect(r?.variante?.id).toBe("curto-G");
+    // e o mais longo continua vencendo quando TEM a cor
+    const m = casarPeca({ descricao: "Regata Alça Azul Marinho", categoria: null }, "G", 1, loja);
+    expect(m?.variante?.id).toBe("longo-G");
+    // sem casar em degrau nenhum, a dúvida é do degrau mais longo
+    const n = casarPeca({ descricao: "Regata Alça Azul Rosa", categoria: null }, "G", 1, loja);
+    expect(n?.produto.id).toBe("longo");
+    expect(n?.cor).toBe("Rosa");
+    expect(n?.motivo).toBe("cor-nao-existe");
+  });
+
+  it("a conta por linha é feita uma vez e serve a todos os tamanhos", () => {
+    const degraus = candidatosDaLinha({ descricao: "Regata Alça Amarelo Manteiga", categoria: null }, produtos);
+    expect(degraus[0].map((c) => c.produto.id)).toEqual(["cafe", "manteiga", "ceu", "terracota"]);
+    expect(casarPecaNosCandidatos(degraus, "M", 1)?.variante?.id).toBe("manteiga-M");
+    expect(casarPecaNosCandidatos(degraus, "G", 1)?.variante?.id).toBe("manteiga-G");
+  });
+
+  it("nome com a cor dentro e a cor repetida (Nuvemshop) segue casando", () => {
+    const nuvem = [
+      {
+        id: "n",
+        name: "Blusa Clássica Tule — Baunilha",
+        variants: [{ id: "n-U", color: "Baunilha", size: "Único", stock: 1 }],
+      },
+    ];
+    const r = casarPeca(
+      { descricao: "Blusa Clássica Tule — Baunilha Baunilha", categoria: null },
+      "Único",
+      1,
+      nuvem
+    );
+    expect(r?.variante?.id).toBe("n-U");
   });
 });
 

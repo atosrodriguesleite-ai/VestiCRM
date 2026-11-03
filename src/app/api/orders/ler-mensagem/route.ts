@@ -14,11 +14,11 @@ import { modoValido, tabelaNoTexto } from "@/lib/catalogo/tabelas-de-preco";
 import { catalogPrice } from "@/lib/orders";
 import { phoneMatchVariants, normalizePhone } from "@/lib/intake";
 import {
-  candidatosDeCor,
+  candidatosDaLinha,
+  casarPecaNosCandidatos,
+  fraseSemVariacao,
   lerMensagemDePedido,
-  normalizar,
   pecasLidas,
-  separarProdutoECor,
 } from "@/lib/catalogo/ler-mensagem";
 
 const schema = z.object({ texto: z.string().min(10).max(20000) });
@@ -135,15 +135,12 @@ export async function POST(req: NextRequest) {
 
     const linhas: LinhaPrevia[] = [];
     for (const item of lido.itens) {
-      // formato antigo/achatado: o item vem só com a cor ("Branco") e o nome
-      // do modelo mora no título da seção — tenta primeiro como veio, depois
-      // com o título na frente ("Blusa Clássica Tule Branco")
-      const achado =
-        separarProdutoECor(item.descricao, produtos) ??
-        (item.categoria
-          ? separarProdutoECor(`${item.categoria} ${item.descricao}`, produtos)
-          : null);
+      // produto + variação decididos pela régua única da lib: o nome escolhe
+      // os candidatos (uma vez por linha), a COR decide entre os xarás (loja
+      // que cadastra um produto por cor), e cor que não existe não vira outra
+      const candidatos = candidatosDaLinha(item, produtos);
       for (const t of item.tamanhos) {
+        const achado = casarPecaNosCandidatos(candidatos, t.tamanho, t.quantidade);
         if (!achado) {
           linhas.push({
             descricao: item.descricao,
@@ -159,26 +156,7 @@ export async function POST(req: NextRequest) {
           });
           continue;
         }
-        const { produto, cor } = achado;
-        // a cor pode faltar no texto: se o produto só tem uma, é ela
-        const doTamanho = produto.variants.filter(
-          (v) => normalizar(v.size) === normalizar(t.tamanho)
-        );
-        let variante = cor
-          ? doTamanho.find((v) => normalizar(v.color) === normalizar(cor))
-          : doTamanho.length === 1
-            ? doTamanho[0]
-            : undefined;
-        // a cor pode vir repetida no texto (nome do produto já traz a cor):
-        // tentamos as formas conhecidas antes de dar a linha como perdida
-        if (!variante && cor) {
-          for (const c of candidatosDeCor(cor)) {
-            variante = doTamanho.find((v) => normalizar(v.color) === normalizar(c));
-            if (variante) break;
-          }
-        }
-        // produto certo, tamanho certo, e só uma cor possível: é ela
-        if (!variante && doTamanho.length === 1) variante = doTamanho[0];
+        const { produto, cor, variante, motivo } = achado;
         linhas.push({
           descricao: item.descricao,
           productId: produto.id,
@@ -199,7 +177,7 @@ export async function POST(req: NextRequest) {
               })
               ? `Estoque insuficiente (tem ${variante.stock})`
               : null
-            : `Sem essa variação${cor ? ` (${cor} ${t.tamanho})` : ` (tamanho ${t.tamanho})`}`,
+            : fraseSemVariacao(motivo!, cor, t.tamanho, candidatos[0]?.length ?? 1),
         });
       }
     }
