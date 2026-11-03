@@ -11,6 +11,7 @@
  */
 
 import { minutoDaHora, minutosDeAtendimentoEntre, type HorarioComercial } from "./bi/horario-comercial";
+import { minutosSemEco, provaAntesDoReinicio, webhookCalado } from "./comm/pulso-regra";
 
 export type NivelSaude = "OK" | "ATENCAO" | "CRITICO";
 
@@ -31,6 +32,10 @@ export type EstadoLoja = {
   falhas24: number;
   /** já teve tráfego algum dia? (loja recém-conectada não é problema) */
   jaTeveTrafego: boolean;
+  /** RN-106: desde quando o primeiro envio pelo sistema espera o eco (null = nenhum) */
+  envioSemEcoDesde?: Date | null;
+  /** RN-106: o último reinício ACEITO pelo servidor (automático ou pelo botão) */
+  reiniciadoEm?: Date | null;
 };
 
 export type Diagnostico = { nivel: NivelSaude; problemas: string[] };
@@ -59,6 +64,23 @@ export function diagnosticoLoja(estado: EstadoLoja, agora = new Date()): Diagnos
     if (estado.presas > 0)
       problemas.push(`${estado.presas} mensagem(ns) presa(s) no envio.`);
     return { nivel, problemas };
+  }
+
+  // RN-106 · o teste do eco: a loja enviou e o eco não voltou — o webhook
+  // parou AGORA, muito antes de o silêncio de 24 h aparecer
+  if (estado.envioSemEcoDesde && webhookCalado(estado.envioSemEcoDesde, agora)) {
+    if (provaAntesDoReinicio(estado.envioSemEcoDesde, estado.reiniciadoEm)) {
+      // o eco tinha parado e a conexão já foi reiniciada: falta a prova
+      problemas.push(
+        "O eco do WhatsApp tinha parado e a conexão foi reiniciada — a próxima mensagem enviada pelo sistema confirma se voltou."
+      );
+      pior("ATENCAO");
+    } else {
+      problemas.push(
+        `A loja enviou há ${minutosSemEco(estado.envioSemEcoDesde, agora)} min e o eco do WhatsApp não voltou — as mensagens das clientes provavelmente não estão entrando.`
+      );
+      pior("CRITICO");
+    }
   }
 
   if (!estado.ultimaRecebida) {

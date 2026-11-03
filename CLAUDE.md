@@ -3166,6 +3166,131 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   confirmado em relatos de usuários e nas notas de versão do Evolution, não na
   definição do Baileys — por isso o leitor aceita os dois nomes conhecidos
   em vez de apostar num só.
+- **RN-106 · O PULSO DO WHATSAPP: O ECO DO ENVIO PROVA QUE FUNCIONA, O
+  SISTEMA SE CURA UMA VEZ ANTES DE ALARMAR, E A QUEDA DIZ O MOTIVO**
+  (`lib/comm/pulso-regra.ts` pura + `lib/comm/pulso-do-webhook.ts`, rodada
+  do vigia em `lib/health.ts`, despertador `GET /api/vigia`, 03/11/2026,
+  ADR-024): pedido do dono depois do incidente da RN-105 — *"quero saber se
+  está realmente funcionando, e quando parar quero ser avisado; dá para
+  evitar que se repita?"*. O alarme de loja muda (RN-105) só tocava depois
+  de um dia de atendimento, e o vigia só roda com alguém usando o sistema.
+  Quatro peças (a quinta, a sonda periódica da sessão, foi **recusada pelo
+  dono**: mandar sinal ao WhatsApp a cada 15 min tem risco de bloqueio que
+  ninguém sabe medir): (1) **o teste do eco**: todo envio pelo sistema
+  (Evolution) volta pelo webhook em segundos — o eco que já sustenta o
+  resgate da bolha (RN-048) e o eco do robô (RN-080). O envio que SAIU
+  carimba `CommSettings.envioSemEcoDesde` (o PRIMEIRO sem eco, com o
+  instante de ANTES do pedido) e qualquer `messages.upsert` que chega pelo
+  webhook o apaga e carimba `webhookUltimoSinalEm` (regravado no máximo a
+  cada 5 s quando não há envio esperando — a regravação TEM que caber na
+  folga do relógio, senão o eco engolido virava alarme falso, achado da
+  revisão; a gravação vai depois da resposta, com a hora em que o aviso
+  chegou, e só apaga o envio que essa chegada pode cobrir). Só `messages.upsert` conta:
+  um caminho que entrega recibos mas perdeu as mensagens não passa por
+  vivo. **Os dois carimbos são UMA instrução SQL cada, condicionada no
+  banco** — o eco pode chegar ANTES da resposta do envio, e ler para depois
+  gravar carimbava "sem eco" por cima do eco que já tinha chegado; o envio
+  coberto por sinal de até 5 s antes do seu começo não carimba (folga de
+  relógio entre máquinas, `MS_FOLGA_DO_RELOGIO`). Envio sem eco há 12 min
+  (`MINUTOS_SEM_ECO`) = o caminho quebrou — achado em minutos, não num dia;
+  (2) **a cura antes do alarme** (`tentarCuraAutomatica`), sempre no FIM da
+  rodada do vigia (os alarmes saem antes dela), **uma por rodada**, só com
+  tempo sobrando (30 s desde o começo da rodada) e só onde a rodada pode
+  curar (o cron da Jueri chama o vigia com `curar: false` — chega lá depois
+  de até 240 s dos 300 da função): reinicia a conexão SOZINHO pela MESMA
+  porta do botão (RN-105: reinicia, reaplica os avisos, lê o estado até
+  assentar, confere com a sonda, com as esperas do botão), **no máximo uma
+  vez a cada 6 h por loja** (`autoCuraEm`, vez tomada de forma atômica — e
+  o eco calado conferido NA HORA de tomar a vez, não pela foto do começo da
+  rodada). **A QUEDA** (o "close" do webhook, ou o vigia lendo a conexão
+  fora de "open") **não reinicia na hora**: o próprio WhatsApp costuma
+  religar em segundos, e reiniciar por cima atrapalharia e gastaria a vez da
+  cura. O aviso de queda do webhook espera 1 min depois da resposta
+  (`cuidarDaQuedaDeRede`, a função com 180 s) e, com a conexão ainda fora,
+  cura; não voltou, alarma — assim a queda da madrugada é tratada em ~1–2
+  min sem ninguém usando o sistema e sem o despertador; duas quedas
+  seguidas não disputam a cura (quem perde a vez e vê uma cura recém-começada
+  sai calado; sem vez nas últimas 6 h, alarma); a conexão ainda "religando"
+  ou "aguardando QR" ganha mais um minuto e, sem voltar, alarma. O vigia é a
+  segunda tranca: cura a loja DESCONECTADA há 3 min ou mais, sem alarme
+  desde a queda; a queda que ELE vê é curada na mesma rodada e, sem cura
+  possível (sem vez, sem tempo, ou o cron da Jueri), alarma na mesma rodada.
+  **As condições da cura da queda moram dentro de `tentarCuraAutomatica`**,
+  junto da vez — uma régua para o webhook e o vigia: só a loja DESCONECTADA,
+  sem reinício em curso, e com o servidor dizendo "fechada" ("open" reabriu;
+  "connecting" é o WhatsApp religando; "aguardando QR" pode ser alguém
+  lendo o QR, e reiniciar invalidaria o código na mão dela). O "fechou"
+  provocado DE PROPÓSITO não é queda: o Desconectar limpa a loja antes do
+  logout (o aviso chega com o token que já não existe) e a recriação do
+  Conectar carimba o pedido de reinício antes do logout. A
+  queda que só volta com o QR Code (`quedaTemCura`: 401 desconectada pelo
+  celular, 403, 411, 440 outra conexão tomou o lugar, 500) **alarma na hora**
+  — também quando chega DEPOIS de uma queda de rede — e carimba a vez da
+  cura (o vigia, que não vê o código, não a reinicia por engano). **O ECO
+  CALADO** é curado na primeira rodada; **a prova NÃO é apagada pelo
+  reinício**: o envio sem eco de antes do último reinício ACEITO pelo
+  servidor (`ultimoReinicioEm` — o do botão ou o da cura, carimbado só
+  depois do aceite: a recusa não finge que reiniciou) vira "de antes do
+  reinício" (`provaAntesDoReinicio`), não
+  cura de novo nem alarma, o painel diz "reiniciada, esperando a próxima
+  mensagem para confirmar" (nunca verde), e o primeiro envio depois do
+  reinício se carimba por cima — a prova nova; calado DE NOVO depois da
+  cura, alarma. Voltou: a loja não é incomodada e a plataforma recebe "🔧
+  WhatsApp religado sozinho"; não voltou: o alarme de sempre ("desconectou"
+  na queda ou quando o reinício deixou a conexão fechada; "🔇 parou de
+  entregar as mensagens ao sistema" no eco, `alertarWebhookCalado`, sino e
+  celular do ADMIN e a plataforma, uma vez por episódio —
+  `webhookCaladoAvisadoEm` —, reaviso a cada 6 h); sem vez para curar, o
+  eco calado há 30 min alarma mesmo assim (a cura é ganho, nunca motivo
+  para o alarme não sair). **A rede de segurança** do vigia alarma a loja
+  caída — DESCONECTADA ou "aguardando QR" com a marca da queda (o WhatsApp
+  religando passa por "connecting", que grava "aguardando QR") — que ficou
+  10 min sem alarme desde a queda (a de rede que não voltou, a cura que
+  terminou "reconectando", e o reinício e a tela que marcavam sem alarme
+  porque a pessoa estava olhando), as mais recentes primeiro e sem ocupar
+  vaga com quem está no anti-spam de 6 h; a migração carimbou as que já
+  estavam assim no dia da entrega (ponto de partida, sem enxurrada). A loja
+  "aguardando QR" não é curada (pode ser alguém lendo o QR agora); a
+  suspensa nunca (alarma como sempre). A trava do vigia tem folga de 30 s
+  sobre os 5 min (o despertador bate a cada 5 min, e com a régua cravada
+  metade das batidas caía 1 s antes da vez). O alarme do eco calado só diz
+  que o sistema "já tentou reiniciar sozinho" quando houve reinício aceito
+  nas últimas horas; sem ele, manda tocar "Reiniciar conexão" — e o
+  reinício do botão não gasta a vez da cura automática. (3) **o motivo da
+  queda** (`motivoDaQueda`, os códigos do WhatsApp — 401 desconectada pelo
+  celular, 440 outra conexão tomou o lugar, 515 reinício pedido, 408 tempo
+  esgotado…) fica em cada queda de quem estava CONECTADA (`wa.conexao.queda` na Central de
+  Comunicação — o QR que vence esperando a leitura não conta; o vigia, que
+  não recebe o código, diz o que leu) e o painel
+  de Saúde ganhou o cartão **"Quedas e consertos do WhatsApp (14 dias)"** e
+  a linha do **pulso** em cada loja (`leituraDoPulso`: eco voltando,
+  esperando, calado), com o diagnóstico CRÍTICO quando o eco está calado;
+  (4) **o despertador externo** (`GET /api/vigia`, ADR-024): um serviço
+  gratuito (cron-job.org) chama a cada 5 min e o vigia vale de madrugada e
+  no domingo. Não é cron da Vercel (o ADR-002 segue intacto) e é **público
+  sem segredo, de propósito**: só acorda o vigia, que tem trava atômica
+  própria, não recebe nem devolve nada, responde sempre 200 (o despertador
+  desliga a tarefa depois de muitas falhas, e uma loja caída não pode matar
+  a vigilância das outras) e roda depois da resposta, com 180 s (a rota da
+  Central, que dá a carona de sempre, passou de 60 para 150 s pelo mesmo
+  motivo). **Limites
+  ditos**: o eco só prova o caminho de quem ENVIA pelo sistema — a loja que
+  só responde pelo celular segue coberta pelo alarme de 24 h (RN-105); a
+  conexão que morre sem ninguém enviar, e sem o servidor dizer "close", só
+  aparece no próximo envio (é o preço de não sondar); depois de um reinício
+  sem envio nenhum, a prova fica esperando (de novo, o alarme de 24 h é a
+  rede); a queda de rede alarma em ~1–2 min, não na hora (o tempo de o
+  WhatsApp religar e de a cura tentar); a cura não conserta
+  sessão desconectada pelo celular (401) — ali só o QR Code; e a causa de
+  fundo é a conexão NÃO oficial: a única forma de evitar quedas de vez é a
+  API oficial da Meta (estrutura pronta, decisão de custo do dono). Provado
+  pelo webhook de verdade contra o Postgres local (`scripts/e2e-pulso.ts`:
+  o eco nas duas ordens da corrida, a cura do eco calado, o alarme depois da
+  cura, a prova que fica depois do reinício e o envio que se carimba por
+  cima, a queda de rede que espera 3 min e é curada pelo vigia, a da
+  madrugada curada pelo próprio aviso depois de 1 min, a 401 que alarma na
+  hora (também depois de uma queda de rede), a rede de segurança — inclusive a
+  sessão presa em "aguardando QR" — e o despertador).
 - **RN-028 · O ARQUIVO DA CLIENTE NÃO SE PERDE**
   (`lib/comm/midia-pendente.ts`, 31/08/2026 — ADR-015): o webhook não recebe o
   arquivo, recebe o AVISO de que ele existe, e precisa buscá-lo. O código

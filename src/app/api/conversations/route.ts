@@ -33,7 +33,11 @@ import { runAutomationsIfDue } from "@/lib/automations-run";
  * rodada de repesca podia ser cortada no meio e perder o minuto inteiro
  * (a trava é tomada antes do trabalho). Achado da revisão de 31/08/2026.
  */
-export const maxDuration = 60;
+// 150 s (era 60): o vigia de carona pode terminar a rodada com a cura
+// automática do WhatsApp (RN-106), que reinicia a conexão de uma loja e
+// leva de 10 a 25 s no comum — no pior caso, bem mais. O teto só limita; a
+// batida comum segue curta.
+export const maxDuration = 150;
 
 export async function GET(req: NextRequest) {
   try {

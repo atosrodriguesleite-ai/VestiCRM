@@ -45,6 +45,9 @@ const PUBLIC_PATHS = [
   "/api/catalogo/fotos/evento", // a galeria de fotos (RN-071) conta o download
   "/api/img", // fotos de produto (catálogo público carrega daqui)
   "/api/cron/", // tarefas agendadas do Vercel (protegidas por CRON_SECRET)
+  // o despertador externo do vigia (RN-106, ADR-024): só acorda o vigia, que
+  // tem trava própria — não recebe nem devolve nada
+  "/api/vigia",
   // A CLIENTE preenche os dados de envio pelo link do chat (RN-024) — página
   // e envio PÚBLICOS: quem prova quem ela é é o código sorteado do link, não
   // o login (faltava aqui: o link levava a cliente para a tela de entrar)

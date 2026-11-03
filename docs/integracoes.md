@@ -113,6 +113,10 @@ demonstração é bloqueado em produção.
 - **Servidor Evolution:** VPS Hostinger `srv1853369.hstgr.cloud`, projeto
   Docker `evolução-api-2zk0`. Webhook autenticado por token único por loja.
   Vigiado por `lib/health.ts` (sem cron — de carona no tráfego, ADR-002).
+- **Despertador do vigia** (ADR-024, RN-106): conta gratuita no cron-job.org
+  (do dono) chamando `GET https://www.atacadopro.com/api/vigia` a cada 5 min.
+  Público e sem segredo — só acorda o vigia, que tem trava própria. Ligar
+  também o e-mail de falha do próprio cron-job.org: avisa se o site cair.
 - **Banco:** Neon (Postgres). Local: porta **5433**.
 - **Hospedagem:** Vercel. Domínios: `www.atacadopro.com` (app e site),
   `catalago.net` (catálogo público; a raiz redireciona para o site).

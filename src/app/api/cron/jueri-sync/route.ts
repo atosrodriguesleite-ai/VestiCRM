@@ -78,7 +78,9 @@ export async function GET(req: NextRequest) {
 
   // vigia do sistema também roda aqui — garante checagem mesmo em período
   // sem ninguém logado (madrugada/fim de semana)
-  await runWatchdogIfDue();
+  // sem a cura automática (RN-106): aqui o vigia chega depois de até 240 s
+  // dos 300 da função, e a Vercel mataria um reinício de conexão no meio
+  await runWatchdogIfDue({ curar: false });
 
   return NextResponse.json({
     ranAt: new Date().toISOString(),

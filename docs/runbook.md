@@ -61,6 +61,26 @@ produção (zera/duplica dados de lojas reais).
    a derruba e recria sozinho — e ler o QR com o celular da loja. Se várias
    lojas caíram juntas, reiniciar primeiro o projeto do Evolution na
    Hostinger.
+5. **"Eco não voltou"** (RN-106, 03/11/2026): a loja enviou pelo sistema e
+   o WhatsApp não devolveu a confirmação em 12 min. O sistema já reiniciou a
+   conexão sozinho (cartão "Quedas e consertos" no `/saude`); o alarme só
+   chega quando a cura não resolveu. Depois de um reinício, o pulso fica
+   "esperando a próxima mensagem" até a loja enviar algo pelo sistema — para
+   confirmar na hora, mandar uma mensagem pela Central e ver o pulso ficar
+   verde. A queda de rede comum alarma em ~1–2 min só se não voltar (o
+   WhatsApp tem 1 min para religar sozinho, depois o sistema reinicia); a
+   desconectada pelo celular (401) alarma na hora. Caminho: Comunicação → se pedir, ler o
+   QR Code; se várias lojas, reiniciar o projeto do Evolution na Hostinger.
+   O cartão também mostra **o motivo de cada queda** (código do WhatsApp em
+   português) — muitas quedas iguais apontam a causa.
+6. **"Não é possível conectar novos dispositivos no momento"** no celular ao
+   ler o QR (03/11/2026): é o WhatsApp travando quem conecta e desconecta
+   várias vezes seguidas — não é o sistema (o QR foi gerado). PARAR de
+   tentar, remover aparelhos velhos em "Dispositivos conectados" (máximo 4),
+   atualizar o WhatsApp, reiniciar o celular e tentar UMA vez mais tarde.
+7. **O despertador externo** (ADR-024): cron-job.org chamando
+   `https://www.atacadopro.com/api/vigia` a cada 5 min. Sem ele o vigia só
+   roda com alguém usando o sistema. O endereço responde sempre `{"ok":true}`.
 
 ---
 

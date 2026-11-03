@@ -133,9 +133,13 @@ export async function POST(req: Request) {
         // ANTES de derrubar, a loja passa a desconectada: se a função for
         // cortada no meio (servidor lento), a tela mostra o Conectar — nunca
         // "Conectado" apontando para uma sessão que já foi apagada lá
+        // RN-106: o "fechou" (401) do logout que vem a seguir é desta
+        // recriação pedida, não queda — o carimbo do pedido faz o webhook
+        // calá-lo (sem ele, a loja levava "WhatsApp desconectou" bem na hora
+        // em que estava reconectando, e a queda falsa ia para o histórico)
         await db.commSettings.update({
           where: { companyId: user.companyId },
-          data: { evolutionStatus: "DESCONECTADO" },
+          data: { evolutionStatus: "DESCONECTADO", reinicioPedidoEm: new Date() },
         });
         // tetos curtos: a cadeia inteira cabe no tempo da rota
         await evoLogout(settings.evolutionInstance!, TETO_DA_RECRIACAO_MS).catch(() => {});
