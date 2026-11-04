@@ -176,8 +176,18 @@ export async function GET(req: NextRequest) {
         try {
           const old = await db.productImage.findUnique({ where: { id: f.id } });
           if (!old) continue;
+          // a linha nova leva TUDO que a antiga tinha: a etiqueta de cor, a
+          // origem (RN-077) e a janela do enquadramento (RN-107) — copiar só
+          // url e ordem fazia o conserto apagar o que a loja tinha escolhido
           const nu = await db.productImage.create({
-            data: { productId: old.productId, url: old.url, order: old.order },
+            data: {
+              productId: old.productId,
+              url: old.url,
+              order: old.order,
+              color: old.color,
+              source: old.source,
+              enquadramento: old.enquadramento ?? undefined,
+            },
             select: { id: true },
           });
           await db.productImage.delete({ where: { id: f.id } });

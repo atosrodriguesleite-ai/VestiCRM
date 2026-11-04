@@ -2016,6 +2016,11 @@ model ProductImage {
   // de onde a foto veio ("JUERI"): é o que separa a foto da Jueri da que a
   // loja subiu — ou da Nuvemshop, que também é link (RN-077)
   source    String?
+  // ENQUADRAMENTO (RN-107): a janela 3:4 que o card do catálogo e o PDF
+  // mostram desta foto — `{ x, y, w, h }` em FRAÇÕES da foto (0..1). A foto
+  // nunca é recortada de verdade: a ficha e a galeria seguem com ela
+  // inteira. Nulo = o corte cego de sempre (topo, centrado).
+  enquadramento Json?
 
   @@index([productId])
 }

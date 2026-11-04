@@ -1,3 +1,4 @@
+import { lerEnquadramento } from "@/lib/enquadramento";
 import { ExternalLink, QrCode } from "lucide-react";
 import { gruposParaSeparar, donoDoEstoque, donoDoPreco } from "@/lib/estoque/dono-do-estoque";
 import { envioPendentePorVariacao } from "@/lib/nuvemshop-estoque-pendente";
@@ -56,7 +57,7 @@ export default async function ProductsPage() {
       where: { companyId: user.companyId },
       include: {
         variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
-        images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
+        images: { orderBy: { order: "asc" }, select: { id: true, color: true, enquadramento: true } },
       },
       orderBy: { name: "asc" },
     }),
@@ -121,7 +122,12 @@ export default async function ProductsPage() {
     // — a ficha tranca o campo, e o servidor é a segunda tranca
     precoDono: donoDoPreco({ nuvemshopId: p.nuvemshopId, jueriId: p.jueriId, variants: p.variants }),
     precoPendenteNuvemshop: precoPendente.get(p.id) ?? null,
-    images: p.images.map((i) => ({ id: i.id, url: imageHref(i.id), color: i.color })),
+    images: p.images.map((i) => ({
+      id: i.id,
+      url: imageHref(i.id),
+      color: i.color,
+      enquadramento: lerEnquadramento(i.enquadramento),
+    })),
     // RN-050: cores que já são de OUTRO produto na Nuvemshop — a ficha
     // oferece separá-las em produto próprio (move, nunca apaga)
     separaveis: gruposParaSeparar(p, p.variants).map((g) => ({

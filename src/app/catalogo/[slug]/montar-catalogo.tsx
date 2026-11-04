@@ -75,7 +75,7 @@ export async function montarCatalogo({
   const items: CatalogProduct[] = acervo.map((p) => ({
     ...p,
     // a tela recebe o ENDEREÇO da foto (RN-070); o PDF lê o conteúdo
-    images: p.images.map((i) => ({ url: imageHref(i.id), color: i.color })),
+    images: p.images.map((i) => ({ url: imageHref(i.id), color: i.color, enquadramento: i.enquadramento })),
   }));
 
   return (

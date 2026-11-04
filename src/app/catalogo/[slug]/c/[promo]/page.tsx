@@ -1,3 +1,4 @@
+import { lerEnquadramento } from "@/lib/enquadramento";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { catalogPrice } from "@/lib/orders";
@@ -93,7 +94,7 @@ export default async function PromoCatalogPage({
         ...(company.catalogHideOutOfStock ? ondeNaoEscondePorEstoque(catsSobEncomenda) : {}),
       },
       include: {
-        images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
+        images: { orderBy: { order: "asc" }, select: { id: true, color: true, enquadramento: true } },
         variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
       },
       orderBy: [{ collection: "desc" }, { name: "asc" }],
@@ -122,7 +123,11 @@ export default async function PromoCatalogPage({
     tags: p.tags,
     // "peça", "conjunto", "kit"… resolvido AQUI, no servidor (RN-068)
     unidade: unidadeDaPeca(p, unidadesPorCategoria, unidadeLoja),
-    images: p.images.map((i) => ({ url: imageHref(i.id), color: i.color })),
+    images: p.images.map((i) => ({
+      url: imageHref(i.id),
+      color: i.color,
+      enquadramento: lerEnquadramento(i.enquadramento),
+    })),
     variants: p.variants.map((v) => ({
       color: v.color,
       size: v.size,

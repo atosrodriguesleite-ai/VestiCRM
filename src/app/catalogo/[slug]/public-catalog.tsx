@@ -36,7 +36,9 @@ import {
   marcarRegistrado,
 } from "@/lib/catalogo/envio-pedido";
 import { celularSemONove, mascaraTelefoneBR } from "@/lib/format";
-import { fotoDaCor, ordenarFotosDaCor } from "@/lib/capa-por-cor";
+import { imagemDaCor, ordenarFotosDaCor } from "@/lib/capa-por-cor";
+import { ImagemEnquadrada } from "@/components/imagem-enquadrada";
+import type { Enquadramento } from "@/lib/enquadramento";
 import {
   agruparPorTipo,
   chaveDeCategoria,
@@ -100,7 +102,9 @@ export type CatalogProduct = {
   unidade: Unidade;
   // cada foto pode vir etiquetada com a cor que mostra (capa por cor):
   // o card da Avelã usa a foto avelã; sem etiqueta, cai na capa geral
-  images: { url: string; color: string | null }[];
+  // `enquadramento` (RN-107): a janela 3:4 que o card mostra desta foto —
+  // a loja escolheu; nula, o corte de sempre (topo, centrado)
+  images: { url: string; color: string | null; enquadramento?: Enquadramento | null }[];
   // `disponivel` = QUANTAS há daquela cor × tamanho (RN-067): a quantidade
   // da vitrine para nesse teto. "Tem/não tem" é derivado daqui, uma vez só
   // (dois campos para o mesmo fato desencontram — achado da revisão)
@@ -1290,18 +1294,21 @@ export function PublicCatalog({
           </span>
         )}
         <div className="w-full overflow-hidden relative" style={{ aspectRatio: "3/4", background: T.soft }}>
-          {card.product.images[0] && (
-            <img
-              // capa por cor: a foto etiquetada com a cor do card; sem
-              // etiqueta, a capa geral
-              src={fotoDaCor(card.product.images, card.color)}
-              alt={`${card.product.name} ${card.color}`}
-              loading="lazy"
-              decoding="async"
-              className="w-full h-full object-cover object-top"
-              style={soldOut ? { filter: "grayscale(1) opacity(.6)" } : undefined}
-            />
-          )}
+          {card.product.images[0] && (() => {
+            // capa por cor: a foto etiquetada com a cor do card; sem
+            // etiqueta, a capa geral — e a janela DELA (RN-107)
+            const foto = imagemDaCor(card.product.images, card.color);
+            return foto ? (
+              <ImagemEnquadrada
+                src={foto.url}
+                enquadramento={foto.enquadramento ?? null}
+                alt={`${card.product.name} ${card.color}`}
+                loading="lazy"
+                decoding="async"
+                style={soldOut ? { filter: "grayscale(1) opacity(.6)" } : undefined}
+              />
+            ) : null;
+          })()}
           {soldOut && (
             <span className="absolute inset-0 flex items-center justify-center">
               <span className="rounded-full bg-gray-800/80 text-white text-[11px] font-bold px-3.5 py-1.5 uppercase tracking-wide">
@@ -2133,16 +2140,22 @@ export function PublicCatalog({
                           className="flex gap-3 py-[13px]"
                           style={{ borderBottom: `1px dashed ${T.line}` }}
                         >
-                          {c.product.images[0] && (
-                            <img
-                              src={fotoDaCor(c.product.images, c.color)}
-                              alt=""
-                              loading="lazy"
-                              decoding="async"
-                              className="w-[58px] h-[74px] object-cover rounded-[10px] border shrink-0"
-                              style={{ borderColor: T.line, background: T.soft }}
-                            />
-                          )}
+                          {c.product.images[0] && (() => {
+                            // a MESMA foto (e janela) do card, num quadro 3:4
+                            // (58 × 77): a sacola mostra o que o card mostrou
+                            const foto = imagemDaCor(c.product.images, c.color);
+                            return foto ? (
+                              <ImagemEnquadrada
+                                src={foto.url}
+                                enquadramento={foto.enquadramento ?? null}
+                                quadroClassName="w-[58px] rounded-[10px] border shrink-0"
+                                quadroStyle={{ borderColor: T.line, background: T.soft }}
+                                alt=""
+                                loading="lazy"
+                                decoding="async"
+                              />
+                            ) : null;
+                          })()}
                           <div className="flex-1 min-w-0">
                             <p className="font-bold text-sm m-0 flex items-center gap-[7px]">
                               {!hideColors && (

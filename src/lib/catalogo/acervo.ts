@@ -12,6 +12,7 @@
  * RN-070) e o PDF lê o conteúdo do banco para embutir no arquivo.
  */
 
+import { lerEnquadramento, type Enquadramento } from "@/lib/enquadramento";
 import { db } from "@/lib/db";
 import { catalogPrice } from "@/lib/orders";
 import { ordenarVariantes } from "@/lib/tamanhos";
@@ -43,7 +44,8 @@ export type PecaDoAcervo = {
   tags: string | null;
   /** "peça", "conjunto", "kit"… resolvida pela escada peça > categoria > loja (RN-068) */
   unidade: Unidade;
-  images: { id: string; color: string | null }[];
+  /** `enquadramento` = a janela 3:4 que o card e o PDF mostram (RN-107); nulo = corte de sempre */
+  images: { id: string; color: string | null; enquadramento: Enquadramento | null }[];
   variants: { color: string; size: string; disponivel: number }[];
 };
 
@@ -82,7 +84,7 @@ export async function acervoDaVitrine(
       ...(company.catalogHideOutOfStock ? ondeNaoEscondePorEstoque(catsSobEncomenda) : {}),
     },
     include: {
-      images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
+      images: { orderBy: { order: "asc" }, select: { id: true, color: true, enquadramento: true } },
       variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
     },
     orderBy: [{ collection: "desc" }, { name: "asc" }],
@@ -109,7 +111,7 @@ export async function acervoDaVitrine(
     minQuantity: p.minQuantity,
     tags: p.tags,
     unidade: unidadeDaPeca(p, unidadesPorCategoria, unidadeLoja),
-    images: p.images.map((i) => ({ id: i.id, color: i.color })),
+    images: p.images.map((i) => ({ id: i.id, color: i.color, enquadramento: lerEnquadramento(i.enquadramento) })),
     // ordem de ROUPA (PP, P, M, G, GG / numeração crescente): a vitrine segue
     // a arara, não o alfabeto
     variants: ordenarVariantes(p.variants).map((v) => ({

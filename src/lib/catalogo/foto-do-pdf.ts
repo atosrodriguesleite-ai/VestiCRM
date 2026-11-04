@@ -20,6 +20,7 @@
 import sharp from "sharp";
 import { db } from "@/lib/db";
 import { dataUrlToBuffer } from "@/lib/img-server";
+import { janelaEmPixels, lerEnquadramento, type Enquadramento } from "@/lib/enquadramento";
 
 /**
  * Largura da foto dentro do PDF, em pixels.
@@ -81,22 +82,10 @@ export async function lerFotosParaPdf(
       bloco.map(async (id) => {
         const url = porId.get(id);
         if (!url) return null;
-        const bruto = await lerBruto(url, restante);
+        const bruto = await lerBruto(url.url, restante);
         if (!bruto) return null;
         try {
-          const jpeg = await sharp(bruto)
-            .rotate() // orientação EXIF (foto de celular deitada)
-            .resize({
-              width: LARGURA_DA_FOTO,
-              height: Math.round(LARGURA_DA_FOTO * proporcao),
-              fit: "cover",
-              position: "top",
-              withoutEnlargement: false,
-            })
-            // fundo branco: PNG com transparência viraria preto no JPEG
-            .flatten({ background: "#ffffff" })
-            .jpeg({ quality: QUALIDADE_DA_FOTO, mozjpeg: true })
-            .toBuffer();
+          const jpeg = await prepararFotoDoPdf(bruto, proporcao, url.enquadramento);
           return { id, jpeg };
         } catch {
           // foto corrompida (importação antiga gravou HTML com cabeçalho de
@@ -112,20 +101,69 @@ export async function lerFotosParaPdf(
 }
 
 /**
+ * Encolhe UMA foto para o PDF, na proporção da moldura.
+ *
+ * Com ENQUADRAMENTO (RN-107), a janela que a loja escolheu é recortada
+ * ANTES do encolhimento — a mesma janela que o card do site mostra por CSS,
+ * medida em pixels sobre a foto já virada (a orientação EXIF entra antes,
+ * senão a janela cairia na foto deitada). Sem janela, o corte de sempre:
+ * ancorado no topo, como o `object-cover object-top` do site.
+ */
+export async function prepararFotoDoPdf(
+  bruto: Buffer,
+  proporcao: number,
+  enquadramento: Enquadramento | null = null
+): Promise<Buffer> {
+  // `rotate()` aplica a orientação EXIF e, chamado ANTES do `extract`, o
+  // sharp recorta a foto já virada — sem decodificar duas vezes (materializar
+  // a foto virada para medir custava o triplo em cada foto, achado da
+  // revisão). As medidas DEPOIS da virada saem dos metadados: orientação
+  // EXIF 5–8 troca largura e altura
+  let imagem = sharp(bruto).rotate();
+  if (enquadramento) {
+    const meta = await sharp(bruto).metadata();
+    const deitada = (meta.orientation ?? 1) >= 5;
+    const largura = deitada ? meta.height : meta.width;
+    const altura = deitada ? meta.width : meta.height;
+    if (largura && altura) {
+      imagem = imagem.extract(janelaEmPixels(enquadramento, largura, altura));
+    }
+  }
+  return imagem
+    .resize({
+      width: LARGURA_DA_FOTO,
+      height: Math.round(LARGURA_DA_FOTO * proporcao),
+      fit: "cover",
+      position: "top",
+      withoutEnlargement: false,
+    })
+    // fundo branco: PNG com transparência viraria preto no JPEG
+    .flatten({ background: "#ffffff" })
+    .jpeg({ quality: QUALIDADE_DA_FOTO, mozjpeg: true })
+    .toBuffer();
+}
+
+type FotoLida = { url: string; enquadramento: Enquadramento | null };
+
+/**
  * As URLs de um bloco de fotos, já resolvendo a REFERÊNCIA interna
  * (`/api/img/<outroId>`, herança de importação que gravou o ponteiro para
  * outra foto em vez do arquivo). Um nível só: cadeia de referência não
  * existe em loja viva, e seguir para sempre seria laço.
  */
-async function lerUrls(ids: string[]): Promise<Map<string, string>> {
+async function lerUrls(ids: string[]): Promise<Map<string, FotoLida>> {
   const linhas = await db.productImage.findMany({
     where: { id: { in: ids } },
-    select: { id: true, url: true },
+    select: { id: true, url: true, enquadramento: true },
   });
-  const porId = new Map(linhas.map((l) => [l.id, l.url]));
+  // o enquadramento é da FOTO pedida, mesmo quando o conteúdo vem por
+  // referência (a janela foi escolhida olhando esta foto)
+  const porId = new Map(
+    linhas.map((l) => [l.id, { url: l.url, enquadramento: lerEnquadramento(l.enquadramento) } as FotoLida])
+  );
 
   const refDe = (url: string) => url.match(/^\/api\/img\/([a-z0-9]+)/i)?.[1];
-  const alvos = [...new Set([...porId.values()].map(refDe).filter((x): x is string => !!x))];
+  const alvos = [...new Set([...porId.values()].map((f) => refDe(f.url)).filter((x): x is string => !!x))];
   if (!alvos.length) return porId;
 
   const extras = await db.productImage.findMany({
@@ -133,12 +171,12 @@ async function lerUrls(ids: string[]): Promise<Map<string, string>> {
     select: { id: true, url: true },
   });
   const mapa = new Map(extras.map((l) => [l.id, l.url]));
-  for (const [id, url] of porId) {
-    const ref = refDe(url);
+  for (const [id, foto] of porId) {
+    const ref = refDe(foto.url);
     const destino = ref ? mapa.get(ref) : undefined;
     // só adota o destino quando ele é conteúdo de verdade: referência que
     // aponta para outra referência (ou para foto apagada) fica sem foto
-    if (destino && !refDe(destino)) porId.set(id, destino);
+    if (destino && !refDe(destino)) porId.set(id, { url: destino, enquadramento: foto.enquadramento });
   }
   return porId;
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { enquadramentoSchema } from "@/lib/enquadramento";
 import { db } from "@/lib/db";
 import { aplicarParDaUnidade } from "@/lib/catalogo/unidade";
 import { codigoDoModeloDisponivel } from "@/lib/sku";
@@ -37,7 +38,16 @@ const createSchema = z.object({
   weightGrams: z.number().int().min(1).max(30000).nullable().optional(), // frete
   tags: z.string().optional(),
   active: z.boolean().default(true),
-  images: z.array(z.string().min(1)).default([]),
+  // cada foto: a data-URL (como sempre) ou `{ url, enquadramento }` — a
+  // janela 3:4 escolhida antes de salvar (RN-107)
+  images: z
+    .array(
+      z.union([
+        z.string().min(1),
+        z.object({ url: z.string().min(1), enquadramento: enquadramentoSchema }),
+      ])
+    )
+    .default([]),
   variants: z.array(variantSchema).min(1),
 });
 
@@ -173,7 +183,13 @@ export async function POST(req: NextRequest) {
       data: {
         ...data,
         companyId: user.companyId,
-        images: { create: images.map((url, i) => ({ url, order: i })) },
+        images: {
+          create: images.map((img, i) =>
+            typeof img === "string"
+              ? { url: img, order: i }
+              : { url: img.url, order: i, enquadramento: img.enquadramento ?? undefined }
+          ),
+        },
         variants: { create: variants },
       },
       include: { variants: true, images: true },

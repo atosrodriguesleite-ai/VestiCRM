@@ -27,9 +27,17 @@ export const corIgual = (a: string | null | undefined, b: string | null | undefi
   return x.length > 0 && x === y;
 };
 
+/**
+ * A FOTO do card desta cor (o objeto inteiro — url, etiqueta e, desde a
+ * RN-107, o enquadramento): 1ª foto etiquetada com ela; senão, a capa geral.
+ */
+export function imagemDaCor<T extends FotoComCor>(fotos: T[], color: string): T | undefined {
+  return fotos.find((f) => corIgual(f.color, color)) ?? fotos[0];
+}
+
 /** A capa do card desta cor: 1ª foto etiquetada com ela; senão, a capa geral. */
 export function fotoDaCor(fotos: FotoComCor[], color: string): string | undefined {
-  return (fotos.find((f) => corIgual(f.color, color)) ?? fotos[0])?.url;
+  return imagemDaCor(fotos, color)?.url;
 }
 
 /**

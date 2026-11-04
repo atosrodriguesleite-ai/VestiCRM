@@ -1172,6 +1172,58 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   medindo o PIXEL: o meio da página 1 é a imagem enviada, o pé é a cor da
   loja com a faixa e a imagem sem ela, a imagem quebrada vira automática) e
   em `catalogo-pdf-capa.test.ts` (a régua e o preparo com o sharp).
+  **RN-107 · A FOTO DO PRODUTO SE ENQUADRA, NUNCA SE RECORTA — A JANELA 3:4 É
+  UMA PARA O CARD E O PDF** (`lib/enquadramento.ts` pura +
+  `components/imagem-enquadrada.tsx` + o editor
+  `components/produto/enquadrar-foto.tsx`, botão de enquadrar nas fotos da
+  ficha e do Novo produto, `ProductImage.enquadramento`, 04/11/2026): pedido
+  do dono — *"quando a pessoa vai subir a foto do produto, poder centralizar
+  ou recortar para ficar certinho"*. O card do catálogo é um quadro 3:4 que
+  cortava a foto ÀS CEGAS (pelo topo, centrado) e o PDF cortava pelo centro:
+  a foto deitada perdia os lados e a peça sumia; a foto com muito chão
+  deixava a peça miúda. Decidido com ele: **enquadrar, não recortar**. A
+  loja arrasta e dá zoom numa moldura 3:4 em cima da foto e o sistema guarda
+  **só quatro números** — a posição e o tamanho da janela em FRAÇÕES da foto
+  (`{ x, y, w, h }`, 0..1, JSON na própria foto). A foto fica inteira no
+  banco: a **ficha da peça** e a **galeria de fotos para a cliente** (RN-071)
+  seguem mostrando tudo, nada dobra de peso (dívida nº 1), e dá para
+  reenquadrar sem subir a foto de novo. **A régua é UMA**: o card obedece
+  por CSS (`estiloDaJanela`: a imagem esticada e deslocada para a janela
+  ocupar o quadro — por isso a janela tem SEMPRE a proporção do card em
+  pixels, senão deformava) e o PDF obedece pelo sharp (`prepararFotoDoPdf`
+  recorta `janelaEmPixels` sobre a foto já virada pelo EXIF, antes de
+  encolher, sem decodificar a foto duas vezes: as medidas depois da virada
+  saem dos metadados) — a mesma janela nos dois, a régua da RN-094 (o papel
+  é o print da tela). **A foto nunca deforma**: a altura da imagem no card
+  é a natural (`height: auto`), então uma janela fora de 3:4 (cliente
+  antigo, dado torto) mostra um pouco mais ou menos de altura, nunca uma
+  modelo espremida (achado da revisão), e o componente
+  (`ImagemEnquadrada`) é DONO do quadro 3:4 com `overflow: hidden` — lugar
+  novo não desenha a janela sem a moldura. A sacola do catálogo (quadro 3:4
+  de 58 px) e a miniatura da ficha também mostram a janela (o que a loja vê
+  ao enquadrar é o que a cliente vê); a grade de Produtos e os cartões de
+  montar pedido (quadro quadrado) seguem com a capa de sempre. **A janela de
+  partida é o que o card mostra hoje** (`enquadramentoInicial`: a maior
+  janela 3:4 que cabe, topo e centrada) — ajustar começa do que a loja já
+  vê, não de um lugar surpresa; mover e zoom passam por `encaixar`, que
+  nunca deixa a janela sair da foto nem descer do mínimo
+  (`JANELA_MINIMA`). **Opcional, nunca obrigatório** (decisão do dono):
+  sobe como sempre, e o botão de enquadrar fica na miniatura; sem janela, o
+  corte de sempre. **A porta recusa janela torta** (`enquadramentoSchema`,
+  a MESMA régua da leitura, 400) e o banco nunca grava número fora da foto;
+  o que já estiver torto no banco é lido como "sem janela"
+  (`lerEnquadramento`), nunca derruba a vitrine. **A janela só viaja quando a
+  pessoa MUDOU** (`mesmoEnquadramento`; ausente preserva, `null` tira) — a
+  ficha aberta há dias não desfaz um enquadramento feito em outra aba (a
+  régua da RN-057). A foto da Nuvemshop e da Jueri também se enquadra (é a
+  janela por cima do link). **Limites ditos**: a Jueri troca as fotos quando
+  elas mudam lá (RN-077) e a janela daquela foto se perde junto; a galeria
+  de fotos entrega o arquivo inteiro de propósito; o conserto de fotos do
+  Super Admin (`diagnostico-fotos`) recria a linha com etiqueta, origem e
+  janela (copiava só url e ordem — achado da revisão). Provado no pixel
+  (`enquadramento-da-foto.test.ts`: a foto de duas cores sai azul de ponta a
+  ponta no PDF com a janela na metade azul) e no navegador contra o build
+  local (o card do catálogo mostra a metade enquadrada).
   **RN-018 · Tabelas de preço por link** (`lib/catalogo/tabelas-de-preco.ts`,
   gated por `Company.priceTablesEnabled`, DESLIGADO por padrão): a loja que
   atende lojista E cliente final gera links do MESMO catálogo com tabelas

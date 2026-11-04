@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
+import { enquadramentoSchema } from "@/lib/enquadramento";
 import { db } from "@/lib/db";
 import { isManagerUp } from "@/lib/scope";
 import { aplicarParDaUnidade } from "@/lib/catalogo/unidade";
@@ -45,6 +47,8 @@ const patchSchema = z.object({
           id: z.string().optional(),
           url: z.string().optional(),
           color: z.string().max(60).nullable().optional(),
+          // RN-107: a janela 3:4 do card — ausente preserva, null tira
+          enquadramento: enquadramentoSchema,
         })
         .refine((e) => e.id || e.url)
     )
@@ -299,11 +303,23 @@ export async function PATCH(
             if (e.id) {
               await tx.productImage.updateMany({
                 where: { id: e.id, productId: product.id },
-                data: { order: i, ...(e.color !== undefined ? { color: e.color } : {}) },
+                data: {
+                  order: i,
+                  ...(e.color !== undefined ? { color: e.color } : {}),
+                  ...(e.enquadramento !== undefined
+                    ? { enquadramento: e.enquadramento === null ? Prisma.DbNull : e.enquadramento }
+                    : {}),
+                },
               });
             } else if (e.url) {
               await tx.productImage.create({
-                data: { productId: product.id, url: e.url, order: i, color: e.color ?? null },
+                data: {
+                  productId: product.id,
+                  url: e.url,
+                  order: i,
+                  color: e.color ?? null,
+                  enquadramento: e.enquadramento ?? undefined,
+                },
               });
             }
           }

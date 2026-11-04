@@ -5,7 +5,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
-import { Split, Check, History, Images, Loader2, Lock, Package, Palette, Plus, Printer, Search, Sparkles, Star, Trash2, Upload, Wand2, X } from "lucide-react";
+import { Split, Check, Crop, History, Images, Loader2, Lock, Package, Palette, Plus, Printer, Search, Sparkles, Star, Trash2, Upload, Wand2, X } from "lucide-react";
+import { ImagemEnquadrada } from "@/components/imagem-enquadrada";
+import { EnquadrarFoto } from "@/components/produto/enquadrar-foto";
+import { mesmoEnquadramento, type Enquadramento } from "@/lib/enquadramento";
+
+/** uma foto na ficha: existente (com id) ou nova (data-URL), com etiqueta de cor e janela (RN-107) */
+type FotoDaFicha = { id?: string; url: string; color?: string | null; enquadramento?: Enquadramento | null };
 import { brl } from "@/lib/format";
 import { Card, EmptyState } from "@/components/ui";
 import { fileToDataUrl } from "@/lib/upload";
@@ -74,7 +80,7 @@ export type ProductItem = {
   /** RN-057: varejo mudado aqui que a Nuvemshop ainda não confirmou ("enviando") ou que ela não aceitou ("falhou") */
   precoPendenteNuvemshop: { estado: "enviando" | "falhou"; motivo: string | null } | null;
   // fotos em ordem — a primeira é a CAPA (aparece na grade e no catálogo)
-  images: { id: string; url: string; color?: string | null }[];
+  images: { id: string; url: string; color?: string | null; enquadramento?: Enquadramento | null }[];
   /** RN-050: cores que já são de OUTRO produto na Nuvemshop (separáveis em produto próprio) */
   separaveis?: { nsProdutoId: string; variantIds: string[]; rotulo: string }[];
   variants: {
@@ -853,9 +859,7 @@ function ProductDetailModal({
     sobEncomenda: product.sobEncomenda === null ? "" : product.sobEncomenda ? "sim" : "nao",
   });
   // galeria em ordem — a posição 0 é a capa; a lista final vai inteira no save
-  const [photos, setPhotos] = useState<
-    { id?: string; url: string; color?: string | null }[]
-  >(product.images);
+  const [photos, setPhotos] = useState<FotoDaFicha[]>(product.images);
   const [stocks, setStocks] = useState<Record<string, string>>(
     Object.fromEntries(product.variants.map((v) => [v.id, String(v.stock)]))
   );
@@ -980,11 +984,17 @@ function ProductDetailModal({
         // RN-076: só viaja quando a pessoa MUDOU (é regra da gerência; a
         // vendedora que edita a ficha não manda nada e o servidor não recusa)
         ...(encomendaEscolhida !== product.sobEncomenda ? { sobEncomenda: encomendaEscolhida } : {}),
-        images: photos.map((ph) =>
-          ph.id
-            ? { id: ph.id, color: ph.color ?? null }
-            : { url: ph.url, color: ph.color ?? null }
-        ),
+        images: photos.map((ph) => {
+          // RN-107: a janela só viaja quando a pessoa MUDOU (ausente
+          // preserva; null tira) — a ficha aberta há dias não desfaz um
+          // enquadramento feito em outra aba
+          const antes = ph.id ? product.images.find((i) => i.id === ph.id)?.enquadramento ?? null : null;
+          const mudou = !mesmoEnquadramento(antes, ph.enquadramento ?? null);
+          const enq = mudou ? { enquadramento: ph.enquadramento ?? null } : {};
+          return ph.id
+            ? { id: ph.id, color: ph.color ?? null, ...enq }
+            : { url: ph.url, color: ph.color ?? null, ...enq };
+        }),
         variantStocks: Object.entries(stocks)
           .filter(([id]) => !removedIds.includes(id))
           .map(([id, stock]) => {
@@ -1889,8 +1899,8 @@ function PhotoManager({
   mediaLibrary = false,
   colors = [],
 }: {
-  photos: { id?: string; url: string; color?: string | null }[];
-  onChange: (p: { id?: string; url: string; color?: string | null }[]) => void;
+  photos: FotoDaFicha[];
+  onChange: (p: FotoDaFicha[]) => void;
   max?: number;
   mediaLibrary?: boolean;
   /** cores da grade do produto — liga a etiqueta "capa por cor" nas fotos */
@@ -1898,6 +1908,8 @@ function PhotoManager({
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // RN-107: qual foto está aberta no editor de enquadramento (pela posição)
+  const [enquadrando, setEnquadrando] = useState<number | null>(null);
 
   async function add(files: FileList | null) {
     if (!files?.length) return;
@@ -1933,7 +1945,22 @@ function PhotoManager({
             key={ph.id ?? `nova-${i}-${ph.url.length}`}
             className="relative aspect-[3/4] rounded-xl overflow-hidden border border-gray-100 bg-gray-50"
           >
-            <img src={ph.url} alt="" className="w-full h-full object-cover object-top" />
+            {/* a miniatura é o card: obedece à janela (RN-107), como o catálogo */}
+            <ImagemEnquadrada src={ph.url} enquadramento={ph.enquadramento ?? null} alt="" />
+            {/* enquadrar: escolher a janela 3:4 que o card mostra */}
+            <button
+              type="button"
+              title={ph.enquadramento ? "Enquadramento escolhido — ajustar" : "Enquadrar (escolher o que aparece no card)"}
+              aria-label="Enquadrar foto"
+              onClick={() => setEnquadrando(i)}
+              // na coluna da direita, abaixo do X: a miniatura é estreita e no
+              // meio do topo o botão caía embaixo do selo "CAPA" (prova no navegador)
+              className={`absolute top-8 right-1 size-6 rounded-full flex items-center justify-center shadow transition ${
+                ph.enquadramento ? "bg-brand-600 text-white" : "bg-white/90 text-gray-500 hover:text-brand-600"
+              }`}
+            >
+              <Crop className="size-3.5" />
+            </button>
             {i === 0 ? (
               <span className="absolute top-1 left-1 bg-brand-600 text-white text-[9px] font-bold rounded-full px-1.5 py-0.5">
                 CAPA
@@ -2012,6 +2039,17 @@ function PhotoManager({
           </button>
         )}
       </div>
+      {enquadrando !== null && photos[enquadrando] && (
+        <EnquadrarFoto
+          src={photos[enquadrando].url}
+          enquadramento={photos[enquadrando].enquadramento ?? null}
+          onFechar={() => setEnquadrando(null)}
+          onSalvar={(e) => {
+            onChange(photos.map((p2, j) => (j === enquadrando ? { ...p2, enquadramento: e } : p2)));
+            setEnquadrando(null);
+          }}
+        />
+      )}
       {pickerOpen && (
         <LibraryPicker
           onClose={() => setPickerOpen(false)}
@@ -2025,7 +2063,9 @@ function PhotoManager({
         Até {max} fotos. A <b>capa</b> aparece na grade e no catálogo — toque na{" "}
         <Star className="inline size-3 text-amber-500 -mt-0.5" /> pra trocar. No
         catálogo, o cliente desliza pro lado pra ver todas. Ideal: 3:4
-        (1200×1600px).
+        (1200×1600px). Foto deitada ou com muito fundo? Toque na{" "}
+        <Crop className="inline size-3 -mt-0.5" /> pra <b>enquadrar</b>: você escolhe
+        o pedaço que aparece no card (a foto continua inteira na ficha).
         {colors.length > 0 && (
           <>
             {" "}
@@ -2173,7 +2213,7 @@ function NewProductModal({
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [photos, setPhotos] = useState<{ id?: string; url: string }[]>([]);
+  const [photos, setPhotos] = useState<FotoDaFicha[]>([]);
   const [selColors, setSelColors] = useState<string[]>(
     libraryColors[0] ? [libraryColors[0].name] : []
   );
@@ -2223,7 +2263,7 @@ function NewProductModal({
         weightGrams: parseInt(String(fd.get("weightGrams"))) || undefined,
         tags: fd.get("tags") || undefined,
         images: photos.length
-          ? photos.map((p) => p.url)
+          ? photos.map((p) => ({ url: p.url, enquadramento: p.enquadramento ?? null }))
           : [PLACEHOLDER_IMAGES[0]],
         variants,
       }),

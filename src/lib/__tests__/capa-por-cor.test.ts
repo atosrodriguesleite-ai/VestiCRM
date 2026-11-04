@@ -101,8 +101,10 @@ describe("o sistema está amarrado", () => {
 
   it("o card, a sacola e a ficha do catálogo usam a foto da cor", () => {
     const cat = ler("src/app/catalogo/[slug]/public-catalog.tsx");
-    expect(cat).toContain("fotoDaCor(card.product.images, card.color)");
-    expect(cat).toContain("fotoDaCor(c.product.images, c.color)");
+    // desde a RN-107 o card e a sacola pegam a FOTO inteira (url + janela),
+    // pela mesma escolha de cor
+    expect(cat).toContain("imagemDaCor(card.product.images, card.color)");
+    expect(cat).toContain("imagemDaCor(c.product.images, c.color)");
     expect(cat).toContain("ordenarFotosDaCor(sheet.product.images, sheet.color)");
   });
 
