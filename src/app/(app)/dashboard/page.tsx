@@ -36,7 +36,18 @@ import {
   orderStatusColor,
 } from "@/lib/orders";
 import { Card, PageHeader, Avatar, PriorityDot, EmptyState } from "@/components/ui";
-import { BarList, AreaCompare, Donut, PeriodChips } from "@/components/charts";
+import { BarList, Donut, PeriodChips } from "@/components/charts";
+import { FaturamentoVivo } from "./faturamento-vivo";
+import { escopoDeVenda, vendasPagasEntre } from "@/lib/dashboard/faturamento-dados";
+import {
+  diaValido,
+  montarFaturamento,
+  montarGrafico,
+  periodoDeComparacao,
+  somarDias,
+} from "@/lib/dashboard/faturamento-regra";
+import { diaSP } from "@/lib/dia";
+import { fimDoDiaSP, inicioDoDiaSP } from "@/lib/periodo";
 import { StatCard } from "@/components/dash";
 import { InfoTip } from "@/components/info-tip";
 import { PrimeirosPassos, type Passo } from "./primeiros-passos";
@@ -62,27 +73,25 @@ export default async function DashboardPage({
   if (user.role === "SUPPORT") redirect("/pedidos");
   const scope = ownedScope(user);
   const now = new Date();
-  const days30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const days7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  // Período analítico do dashboard (filtro De/Até). Padrão: últimos 30 dias.
-  const SP_OFFSET = 3 * 60 * 60 * 1000; // São Paulo é UTC-3
-  const spStart = (d?: string) => {
-    const t = d ? Date.parse(`${d}T00:00:00Z`) : NaN;
-    return Number.isNaN(t) ? null : new Date(t + SP_OFFSET);
-  };
-  const spEnd = (d?: string) => {
-    const t = d ? Date.parse(`${d}T23:59:59.999Z`) : NaN;
-    return Number.isNaN(t) ? null : new Date(t + SP_OFFSET);
-  };
-  const from = spStart(de) ?? days30;
-  const to = spEnd(ate) ?? now;
+  // Período analítico do dashboard (filtro De/Até), em DIAS INTEIROS de São
+  // Paulo. Padrão: hoje e os 29 dias anteriores — exatamente o que o atalho
+  // "30 dias" manda (antes o padrão era "agora menos 30×24h", que começava
+  // no meio de um dia e dava um número diferente do atalho aceso, RN-108).
+  const hoje = diaSP(now);
+  const deISO = diaValido(de) ? de : somarDias(hoje, -29);
+  const ateISO = diaValido(ate) ? ate : hoje;
+  const periodo = { de: deISO, ate: ateISO };
+  const from = inicioDoDiaSP(deISO)!;
+  const to = fimDoDiaSP(ateISO)!;
   const inPeriod = { gte: from, lte: to };
-  const customPeriod = !!(spStart(de) || spEnd(ate));
+  const customPeriod = diaValido(de) || diaValido(ate);
   // Período ANTERIOR com a mesma duração, imediatamente antes do atual —
-  // base das setinhas de variação (% vs período anterior) nos cartões.
-  const durMs = Math.max(to.getTime() - from.getTime(), 1);
-  const prevTo = new Date(from.getTime() - 1);
-  const prevFrom = new Date(from.getTime() - durMs);
+  // base das setinhas de variação (% vs período anterior) nos cartões e a
+  // comparação de partida do gráfico (a mesma régua, `periodoDeComparacao`).
+  const periodoAnterior = periodoDeComparacao("anterior", periodo)!;
+  const prevFrom = inicioDoDiaSP(periodoAnterior.de)!;
+  const prevTo = fimDoDiaSP(periodoAnterior.ate)!;
   const inPrev = { gte: prevFrom, lte: prevTo };
   // meia-noite no fuso de São Paulo (UTC-3): o servidor roda em UTC e o
   // setHours local começaria o "hoje" 3h mais cedo
@@ -94,9 +103,8 @@ export default async function DashboardPage({
   spMonth.setUTCHours(0, 0, 0, 0);
   const startOfMonth = new Date(spMonth.getTime() + 3 * 60 * 60 * 1000);
 
-  const saleScope = canSeeAll(user)
-    ? { companyId: user.companyId }
-    : { companyId: user.companyId, sellerId: user.id };
+  // quem vê o quê no faturamento: UMA régua com a porta do gráfico (RN-108)
+  const saleScope = escopoDeVenda(user);
   // Faturamento/venda = pedido PAGO (ou além). Pedido gerado sem pagamento
   // não conta como venda — regra central do produto.
   const orderScope = { ...saleScope, status: { in: PAID_ORDER_STATUSES } };
@@ -144,13 +152,11 @@ export default async function DashboardPage({
     prevCohortPaid,
     statusCounts,
   ] = await Promise.all([
-    // Faturamento = pedidos PAGOS (fonte única da verdade, igual à tela Pedidos)
-    db.order.findMany({
-      where: { ...orderScope, paidAt: inPeriod },
-      // VALOR VENDIDO (netTotal): o frete atravessa a loja e vai para a
-      // transportadora — não é faturamento nem comissão
-      select: { netTotal: true, sellerId: true, paidAt: true },
-    }),
+    // Faturamento = pedidos PAGOS (fonte única da verdade, igual à tela
+    // Pedidos), pela MESMA consulta que a porta do gráfico usa (RN-108) —
+    // valor VENDIDO (netTotal): o frete atravessa a loja e vai para a
+    // transportadora, não é faturamento nem comissão
+    vendasPagasEntre(user, periodo),
     db.customer.count({ where: scope }),
     db.customer.count({ where: { ...scope, createdAt: inPeriod } }),
     db.opportunity.findMany({ where: { ...scope, status: "OPEN" } }),
@@ -254,10 +260,7 @@ export default async function DashboardPage({
       select: { lowStockThreshold: true },
     }),
     // --- comparativo: mesmas métricas no período ANTERIOR ---
-    db.order.findMany({
-      where: { ...orderScope, paidAt: inPrev },
-      select: { netTotal: true, paidAt: true },
-    }),
+    vendasPagasEntre(user, periodoAnterior),
     db.customer.count({ where: { ...scope, createdAt: inPrev } }),
     db.order.count({ where: { ...orderAnyScope, createdAt: inPrev } }),
     // coorte do período anterior (mesma régua da conversão atual)
@@ -415,50 +418,16 @@ export default async function DashboardPage({
     ? `${dateShort(from)} a ${dateShort(to)}`
     : "últimos 30 dias";
 
-  // --- séries diárias (fuso SP) + variação % vs período anterior ---
-  const DAY = 86_400_000;
-  const dayIdx = (d: Date) => Math.floor((d.getTime() - SP_OFFSET) / DAY);
-  const firstIdx = dayIdx(from);
-  // teto de ~4 anos só para o array não explodir com uma data digitada
-  // errada. Antes o teto era 400 dias e o corte era MUDO: filtrando 13+
-  // meses, o fim do período sumia do gráfico sem aviso (auditoria
-  // 24/08/2026) — agora o teto quase nunca é atingido e, quando é, a tela diz.
-  const TETO_DIAS_GRAFICO = 1465;
-  const totalDias = Math.max(dayIdx(to) - firstIdx + 1, 1);
-  const nDias = Math.min(totalDias, TETO_DIAS_GRAFICO);
-  const graficoCortado = totalDias > TETO_DIAS_GRAFICO;
-  const serieFat = new Array<number>(nDias).fill(0);
-  for (const v of sales30) {
-    if (!v.paidAt) continue;
-    const i = dayIdx(v.paidAt) - firstIdx;
-    if (i >= 0 && i < nDias) serieFat[i] += v.netTotal;
-  }
-  const prevFirstIdx = dayIdx(prevFrom);
-  const seriePrev = new Array<number>(nDias).fill(0);
-  for (const v of prevSales) {
-    if (!v.paidAt) continue;
-    const i = dayIdx(v.paidAt) - prevFirstIdx;
-    if (i >= 0 && i < nDias) seriePrev[i] += v.netTotal;
-  }
-  let labelsDias = Array.from({ length: nDias }, (_, i) => {
-    const d = new Date((firstIdx + i) * DAY);
-    return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  // --- o gráfico de faturamento (RN-108): as duas séries diárias, pela
+  // régua pura que a porta e a tela também usam; a comparação de partida é
+  // o período anterior (a pessoa troca na própria tela, sem recarregar) ---
+  const faturamento = montarFaturamento({
+    periodo,
+    tipo: "anterior",
+    comparacao: periodoAnterior,
+    vendas: sales30,
+    vendasComparadas: prevSales,
   });
-  // período muito longo: agrupa por semana pro gráfico não virar serrote
-  const porSemana = (arr: number[]) => {
-    const out: number[] = [];
-    for (let i = 0; i < arr.length; i += 7)
-      out.push(arr.slice(i, i + 7).reduce((a, b) => a + b, 0));
-    return out;
-  };
-  let chartFat = serieFat;
-  let chartPrev = seriePrev;
-  const agrupadoPorSemana = nDias > 92;
-  if (agrupadoPorSemana) {
-    chartFat = porSemana(serieFat);
-    chartPrev = porSemana(seriePrev);
-    labelsDias = labelsDias.filter((_, i) => i % 7 === 0);
-  }
 
   const pctDelta = (cur: number, prev: number) =>
     prev > 0 ? ((cur - prev) / prev) * 100 : null;
@@ -609,7 +578,7 @@ export default async function DashboardPage({
           value={revenue30}
           format="brl"
           delta={deltaVendas}
-          series={chartFat}
+          series={montarGrafico(faturamento, "dia").pontos.map((p) => p.atual)}
           hint={`${sales30.length} pedidos${customPeriod ? " no período" : ""}`}
           icon={<Wallet />}
           info="Soma do valor de todos os pedidos PAGOS no período. Pedido gerado sem pagamento não entra aqui. A setinha compara com o período anterior de mesma duração."
@@ -688,45 +657,7 @@ export default async function DashboardPage({
       {(sales30.length > 0 || prevSales.length > 0) && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6">
           <Card className="p-5 lg:col-span-2">
-            <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
-              <h2 className="font-semibold flex items-center gap-2 text-sm">
-                <TrendingUp className="size-4 text-brand-600" />
-                Faturamento no período
-                {agrupadoPorSemana && (
-                  <span className="text-[11px] font-normal text-slate-400">
-                    · por semana
-                  </span>
-                )}
-                <InfoTip
-                  text={
-                    agrupadoPorSemana
-                      ? "Período longo agrupa por SEMANA: cada ponto soma os 7 dias a partir da data mostrada. A linha tracejada clara é o período anterior de mesma duração — semana 1 alinha com semana 1."
-                      : "Valor dos pedidos pagos por dia. A linha tracejada clara é o período anterior de mesma duração — dia 1 alinha com dia 1."
-                  }
-                />
-                {graficoCortado && (
-                  <span className="text-[11px] font-normal text-amber-600">
-                    · mostrando os primeiros 4 anos do período
-                  </span>
-                )}
-              </h2>
-              <div className="flex items-center gap-3 text-[11px] text-slate-400">
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block w-4 border-t-2 border-brand-600 rounded" />
-                  período atual
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block w-4 border-t-2 border-dashed border-[#dbba8b] rounded" />
-                  anterior
-                </span>
-              </div>
-            </div>
-            <AreaCompare
-              points={chartFat}
-              prevPoints={chartPrev}
-              labels={labelsDias}
-              formatValue={brl}
-            />
+            <FaturamentoVivo inicial={faturamento} />
           </Card>
           {totalPedidosPeriodo > 0 && (
             <Card className="p-5">

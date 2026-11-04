@@ -27,8 +27,8 @@ import {
  * escuro troca por uma rampa própria, validada.
  */
 
-/** a seleção por toque fica; por mouse, sai ao sair (hook comum aos três gráficos) */
-function useSelecao(caixa: React.RefObject<HTMLElement | null>) {
+/** a seleção por toque fica; por mouse, sai ao sair (hook comum aos três gráficos — e ao faturamento do Dashboard, RN-108) */
+export function useSelecao(caixa: React.RefObject<HTMLElement | null>) {
   const [ativo, setAtivo] = useState<number | null>(null);
   const porToque = useRef(false);
   useEffect(() => {
@@ -51,7 +51,7 @@ function useSelecao(caixa: React.RefObject<HTMLElement | null>) {
 }
 
 /** o balão (classe própria: no tema escuro o bg-slate-900 vira creme e o text-white ficaria invisível) */
-const BALAO = "pointer-events-none absolute z-10 rounded-lg gv-balao text-xs px-2.5 py-1.5 shadow-lg";
+export const BALAO = "pointer-events-none absolute z-10 rounded-lg gv-balao text-xs px-2.5 py-1.5 shadow-lg";
 const SUB = "gv-balao-sub";
 
 /**

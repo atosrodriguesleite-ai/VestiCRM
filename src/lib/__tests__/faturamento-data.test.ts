@@ -28,6 +28,10 @@ const TELAS_DE_DINHEIRO = [
   "lib/bi/tendencia.ts",
   "lib/bi/listas.ts",
   "app/(app)/dashboard/page.tsx",
+  // a consulta de venda paga do Dashboard mora aqui desde a RN-108 (a página
+  // e a porta do gráfico leem a mesma); e a regra pura que o navegador soma
+  "lib/dashboard/faturamento-dados.ts",
+  "lib/dashboard/faturamento-regra.ts",
   "app/(app)/relatorios/page.tsx",
   "app/(app)/comissoes/page.tsx",
   "app/(app)/financeiro/page.tsx",

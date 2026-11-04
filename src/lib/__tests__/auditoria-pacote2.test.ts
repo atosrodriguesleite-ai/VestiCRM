@@ -36,15 +36,19 @@ describe("Dashboard: rodapés e contadores honestos", () => {
     expect(dash).toContain("etapasDeFechamento");
     expect(dash).toContain(".slice(-2)");
   });
+  // o gráfico virou componente vivo (RN-108): a regra mora na lib pura e o
+  // texto na tela do componente — os avisos continuam sendo ditos
+  const regra = ler("src/lib/dashboard/faturamento-regra.ts");
+  const grafico = ler("src/app/(app)/dashboard/faturamento-vivo.tsx");
   it("período gigante não corta o gráfico em silêncio", () => {
-    expect(dash).toContain("TETO_DIAS_GRAFICO");
-    expect(dash).toContain("graficoCortado");
-    expect(dash).toContain("mostrando os primeiros 4 anos do período");
+    expect(regra).toContain("TETO_DIAS_GRAFICO");
+    expect(regra).toContain("cortado: total > TETO_DIAS_GRAFICO");
+    expect(grafico).toContain("mostrando os primeiros 4 anos do período");
   });
   it("gráfico agrupado por semana DIZ que é por semana", () => {
-    expect(dash).toContain("agrupadoPorSemana");
-    expect(dash).toContain("· por semana");
-    expect(dash).toContain("Período longo agrupa por SEMANA");
+    expect(regra).toContain("DIAS_PARA_AGRUPAR_POR_SEMANA");
+    expect(grafico).toContain("· por semana");
+    expect(grafico).toContain("Período longo agrupa por SEMANA");
   });
 });
 

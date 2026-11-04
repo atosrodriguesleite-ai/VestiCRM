@@ -131,14 +131,21 @@ export type GeometriaDaSerie = {
 /** a geometria da série de tempo (pura, testável): posições, caminhos, pico, rótulos sem colisão */
 export function geometriaDaSerie(
   points: number[],
-  opcoes: { w?: number; h?: number; pad?: GeometriaDaSerie["pad"]; larguraDoRotulo?: (i: number) => number } = {}
+  opcoes: {
+    w?: number;
+    h?: number;
+    pad?: GeometriaDaSerie["pad"];
+    larguraDoRotulo?: (i: number) => number;
+    /** o teto do eixo quando duas séries dividem o mesmo gráfico (o maior das duas) — nunca menor que o pico desta */
+    max?: number;
+  } = {}
 ): GeometriaDaSerie {
   const w = opcoes.w ?? 600;
   const h = opcoes.h ?? 180;
   const pad = opcoes.pad ?? { top: 18, right: 10, bottom: 24, left: 10 };
   const n = points.length;
   const maior = n ? Math.max(...points) : 0;
-  const max = Math.max(maior, 1);
+  const max = Math.max(maior, opcoes.max ?? 0, 1);
   const iw = w - pad.left - pad.right;
   const ih = h - pad.top - pad.bottom;
   const step = n > 1 ? iw / (n - 1) : iw;

@@ -318,6 +318,57 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   declara com o marcador **`frete-ok`** e o motivo, na linha ou nas duas
   acima. A versão anterior do guarda tinha regex frouxa e deixou passar seis
   somas com frete no Dashboard — guarda que não pega nada é pior que nenhum.
+- **RN-108 · O GRÁFICO DE FATURAMENTO DO DASHBOARD É VIVO: O DIA EXATO NO
+  BALÃO, A COMPARAÇÃO ESCOLHIDA NA TELA, E O PERÍODO COMPARADO SEMPRE DO
+  MESMO TAMANHO** (`lib/dashboard/faturamento-regra.ts` pura +
+  `faturamento-dados.ts` no servidor, porta `/api/dashboard/faturamento`,
+  `app/(app)/dashboard/faturamento-vivo.tsx`, 04/11/2026): pedido do dono —
+  *"nesse gráfico que compara com o mês anterior, gostaria de mudar a data
+  de comparação e passar o mouse e ver o faturamento exato do dia; ser mais
+  dinâmico para fazer as análises"*. O gráfico era um desenho de servidor
+  com o período anterior fixo e um `<title>` de SVG que só o mouse do
+  computador via. Quatro decisões: (1) **o período comparado tem SEMPRE a
+  mesma duração do período da tela e os dias se alinham um a um** (dia 1 com
+  dia 1, a régua que já valia); a loja escolhe só ONDE ele começa
+  (`periodoDeComparacao`): **período anterior** (o padrão de sempre), **mesmo
+  período do ano passado** (sazonalidade — o novembro de 2025 contra o de
+  2026) ou **outra data** ("a partir de 01/10"; a tela mostra até quando vai).
+  Trocar a comparação, ou o modo, **não recarrega a página**: a tela pede as
+  duas séries à porta, que as monta pela MESMA consulta da página
+  (`vendasPagasEntre` — pedido PAGO, pela data do pagamento, `netTotal`,
+  RN-001/RN-002, recortado pela SESSÃO: gerência vê a loja, vendedora só as
+  vendas dela, RN-007; suporte e Super Admin fora da loja levam 403, como a
+  página os manda embora). A última comparação que deu certo fica na tela
+  quando a busca falha, e a frase diz o que foi (401 = sessão venceu, a
+  régua da RN-088). A escolha (comparação e modo) fica no aparelho, como
+  preferência de leitura. (2) **Cada ponto é um DIA de São Paulo**
+  (`serieDiaria`, pela régua `diaSP` — o pagamento das 23h conta no dia de
+  SP, não no dia UTC); acima de 92 dias os pontos viram semanas, e o balão
+  diz de qual dia a qual dia o ponto soma. **O balão** (mira pela posição,
+  seleção que fica no toque, setas no teclado — a régua da RN-089) mostra o
+  dia com o dia da semana, o valor exato e os pedidos pagos do dia, o MESMO
+  dia do período comparado (com a data dele) e a diferença em reais e em %.
+  (3) **O modo acumulado** responde "até o dia 15 estou na frente ou
+  atrás?": a soma corrida nos dois lados, terminando no total do período —
+  o mesmo total do resumo (vendido, pedidos, ticket, variação, diferença em
+  reais, média por dia, melhor dia), porque **o navegador não faz conta de
+  dinheiro nova**: soma, acumula e agrupa a série diária que o servidor
+  mandou, pelas mesmas funções puras que o servidor usa (o teste prende que
+  o fim do acumulado é o total do resumo). O teto do eixo é o maior das DUAS
+  séries (`geometriaDaSerie` ganhou `max`) — cada uma no próprio eixo
+  mentiria a comparação. (4) **O período padrão do Dashboard passou a ser em
+  DIAS INTEIROS**: hoje e os 29 anteriores, que é exatamente o atalho "30
+  dias" que a tela acende por padrão — antes o padrão era "agora menos
+  30×24h", começava no meio de um dia e dava um número diferente do atalho
+  aceso; o período anterior dos cartões (as setinhas) é o mesmo da
+  comparação de partida do gráfico, pela mesma função. **Limites ditos**:
+  as setinhas dos cartões seguem comparando com o período ANTERIOR (a
+  comparação escolhida é do gráfico — o cartão diz com o que compara);
+  "ano passado" de um 29/02 começa em 01/03; e a comparação escolhida não
+  vai para o endereço (não é link compartilhável — é preferência do
+  aparelho). Guardado em `faturamento-vivo.test.ts` (regra e porta com
+  banco de mentira) e `faturamento-vivo.test.tsx` (a tela em jsdom: balão,
+  troca de comparação, falha, acumulado, preferência).
 - **RN-069 · VENDA A PRAZO — "ENTREGUE · A RECEBER"** (`OrderStatus.ENTREGUE_A_RECEBER`,
   `lib/orders.ts`, 03/10/2026): pedido do dono — *"tem gente que compra hoje e
   só paga mês que vem, mas já está com o produto"*. Decidido com ele: é

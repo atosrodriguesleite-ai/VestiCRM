@@ -120,7 +120,11 @@ describe("as telas de números abrem no MESMO período (auditoria 27/08/2026)", 
   it("Dashboard e Marketing também abrem em 30 dias (têm a conta própria)", () => {
     // não usam `lerPeriodo`: se alguém mexer no padrão de uma delas, as telas
     // voltam a divergir — e este teste é quem avisa
-    expect(dash).toContain("30 * 24 * 60 * 60 * 1000");
+    // o Dashboard abre em 30 dias de CALENDÁRIO de SP (hoje e os 29
+    // anteriores — o mesmo recorte do atalho "30 dias", RN-108)
+    expect(dash).toContain("somarDias(hoje, -29)");
+    expect(dash).toContain("const hoje = diaSP(now);");
+    expect(dash).not.toContain("30 * 24 * 60 * 60 * 1000");
     expect(marketing).toContain("30 * 864e5");
     expect(dash).not.toContain("90 * 24 * 60 * 60 * 1000");
     expect(marketing).not.toContain("90 * 24 * 60 * 60 * 1000");
