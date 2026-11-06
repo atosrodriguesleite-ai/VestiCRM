@@ -16,11 +16,11 @@ vi.mock("@/components/portal", () => ({ Portal: ({ children }: { children: React
 
 afterEach(cleanup);
 
-// três linhas de regata (uma ×2 = 3 peças), um vestido
+// três linhas de regata (uma ×2 = 3 peças, dois cards: Preto e Azul), um vestido
 const pecas = [
-  { categoria: "Regatas", pago: 32, quantidade: 2 },
-  { categoria: "Regatas", pago: 45, quantidade: 1 },
-  { categoria: "Vestidos", pago: 60, quantidade: 1 },
+  { categoria: "Regatas", pago: 32, quantidade: 2, productId: "p-reg", nome: "Regata Alça", cor: "Preto" },
+  { categoria: "Regatas", pago: 45, quantidade: 1, productId: "p-reg", nome: "Regata Alça", cor: "Azul" },
+  { categoria: "Vestidos", pago: 60, quantidade: 1, productId: "p-ves", nome: "Vestido Longo", cor: null },
 ];
 
 function abrir(props: Partial<Parameters<typeof ResaleCatalog>[0]> = {}) {
@@ -95,7 +95,7 @@ describe("as linhas por categoria", () => {
   it("a regra lembrada na ficha abre preenchida, e liga o preço mesmo sem margem geral salva", () => {
     abrir({ savedMarkup: 0, savedCategorias: { Vestidos: { tipo: "fixo", valor: 99.9 } } });
     expect((screen.getByLabelText("Regra de Vestidos") as HTMLSelectElement).value).toBe("fixo");
-    expect((screen.getByLabelText("Preço fixo de Vestidos") as HTMLInputElement).value).toBe("99.9");
+    expect((screen.getByLabelText("Preço fixo de Vestidos") as HTMLInputElement).value).toBe("99,90");
     expect(href()).toContain('cats={"Vestidos":{"tipo":"fixo","valor":99.9}}');
   });
   it("sem preço, as linhas somem e nada de categoria vai no endereço", () => {
@@ -104,5 +104,64 @@ describe("as linhas por categoria", () => {
     expect(screen.queryByTestId("revenda-categorias")).toBeNull();
     expect(href()).toContain("preco=nao");
     expect(href()).not.toContain("cats=");
+  });
+});
+
+describe("peça a peça", () => {
+  it("abre as peças da categoria, o preço digitado manda sobre a categoria e vai no endereço", () => {
+    abrir();
+    fireEvent.click(screen.getByRole("button", { name: /Ajustar peça a peça \(2\)/ }));
+    const lista = screen.getByTestId("revenda-pecas-Regatas");
+    expect(lista.textContent).toContain("Regata Alça — Preto");
+    expect(lista.textContent).toContain("2 peças · pagou R$ 32,00 · sai a R$ 64,00"); // a margem geral, antes de digitar
+    fireEvent.change(screen.getByLabelText("Preço de Regata Alça — Preto"), { target: { value: "49,90" } });
+    expect(lista.textContent).toContain("sai a R$ 49,90");
+    expect(screen.getByTestId("revenda-categorias").textContent).toContain("1 peça com preço próprio");
+    expect(href()).toContain('pecas={"p-reg|Preto":49.9}');
+    // a categoria em preço fixo não passa por cima da peça
+    fireEvent.change(screen.getByLabelText("Regra de Regatas"), { target: { value: "fixo" } });
+    fireEvent.change(screen.getByLabelText("Preço fixo de Regatas"), { target: { value: "59,90" } });
+    expect(lista.textContent).toMatch(/Azul[\s\S]*sai a R\$ 59,90/);
+    expect(lista.textContent).toMatch(/Preto[\s\S]*sai a R\$ 49,90/);
+  });
+  it("preço por peça abaixo do que pagou avisa; zero não vira preço", () => {
+    abrir();
+    fireEvent.click(screen.getByRole("button", { name: /Ajustar peça a peça \(2\)/ }));
+    fireEvent.change(screen.getByLabelText("Preço de Regata Alça — Preto"), { target: { value: "30" } });
+    expect(screen.getByRole("alert").textContent).toContain("abaixo do que pagou");
+    fireEvent.change(screen.getByLabelText("Preço de Regata Alça — Preto"), { target: { value: "0" } });
+    expect(screen.getByRole("alert").textContent).toContain("maior que zero");
+    expect(href()).not.toContain("pecas=");
+  });
+  it("o lembrado com 3 casas volta em pt-BR e NÃO vira mil (12.345 → \"12,35\", não 12345)", () => {
+    abrir({ savedMarkup: 0, savedPecas: { "p-ves|": 12.345 }, savedCategorias: { Regatas: { tipo: "fixo", valor: 12.345 } } });
+    expect((screen.getByLabelText("Preço de Vestido Longo") as HTMLInputElement).value).toBe("12,35");
+    expect((screen.getByLabelText("Preço fixo de Regatas") as HTMLInputElement).value).toBe("12,35");
+    expect(href()).toContain('"p-ves|":12.35');
+    expect(href()).not.toContain("12345");
+  });
+  it("preço acima do teto não entra no endereço e a linha DIZ; a categoria em fixo não avisa pela peça que tem preço próprio", () => {
+    abrir();
+    fireEvent.click(screen.getByRole("button", { name: /Ajustar peça a peça \(2\)/ }));
+    fireEvent.change(screen.getByLabelText("Preço de Regata Alça — Preto"), { target: { value: "150000" } });
+    expect(screen.getByRole("alert").textContent).toContain("acima do teto");
+    expect(href()).not.toContain("pecas=");
+    expect(screen.getByTestId("revenda-categorias").textContent).not.toContain("com preço próprio");
+    // a Azul (pagou 45) ganha preço próprio de 90; o fixo de 40 da categoria só pesa sobre a Preto (pagou 32): sem prejuízo
+    fireEvent.change(screen.getByLabelText("Preço de Regata Alça — Preto"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Preço de Regata Alça — Azul"), { target: { value: "90" } });
+    fireEvent.change(screen.getByLabelText("Regra de Regatas"), { target: { value: "fixo" } });
+    fireEvent.change(screen.getByLabelText("Preço fixo de Regatas"), { target: { value: "40" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Preço de Regata Alça — Azul"), { target: { value: "" } });
+    expect(screen.getByRole("alert").textContent).toContain("1 peça custou esse valor ou mais");
+  });
+  it("o preço lembrado abre a categoria já aberta e preenchida, e liga o preço", () => {
+    abrir({ savedMarkup: 0, savedPecas: { "p-ves|": 99.9, "p-nao-esta|": 5 } });
+    const lista = screen.getByTestId("revenda-pecas-Vestidos");
+    expect((screen.getByLabelText("Preço de Vestido Longo") as HTMLInputElement).value).toBe("99,90");
+    expect(lista.textContent).toContain("sai a R$ 99,90");
+    expect(href()).toContain('pecas={"p-ves|":99.9}');
+    expect(href()).toContain("markup=0");
   });
 });

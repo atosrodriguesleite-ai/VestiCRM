@@ -412,14 +412,43 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   de prejuízo conta peças); **trocar o modo da linha apaga o número** (o
   "99,90" de preço fixo virando 99,9% de margem iria para o papel sem
   ninguém ver); o formato do preço é um só (`formatarPreco`, papel e
-  prévia); e a prévia dos R$ 35 passa por `precoDeRevenda`. **Limites
-  ditos**: é por categoria, nunca peça a peça (pedido de 40 peças viraria
-  um formulário enorme no celular — exceção pontual é outra entrega); e a
-  categoria é o nome do cadastro, então renomear a categoria na loja
-  deixa a regra antiga órfã na ficha (ela só some quando um pedido com a
-  categoria nova for gerado). Guardado em `revenda-por-categoria.test.ts`
-  (a regra e a rota com banco de mentira) e `resale-catalog.test.tsx` (a
-  janela em jsdom).
+  prévia); e a prévia dos R$ 35 passa por `precoDeRevenda`. **E O PREÇO
+  POR PEÇA, por cima da categoria** (pedido do dono no mesmo dia: *"gostaria
+  de colocar o preço unitário, e não o valor completo por categoria"* — eu
+  tinha deixado o peça a peça de fora de propósito, e ele reafirmou): cada
+  linha de categoria tem **"Ajustar peça a peça"**, que abre os CARDS do
+  catálogo daquela categoria (produto × cor, a MESMA dedup da rota do PDF —
+  `cardsDoPedido`/`chaveDoCard`: a primeira linha manda no preço pago, as
+  demais somam peças) com o preço unitário digitável; a peça com preço
+  próprio **manda mais que a categoria e que a margem geral**
+  (`precoDeRevenda(pago, categoria, opcoes, chave)`: nunca arredondado,
+  nunca zero — vazio ou zero segue a categoria, e a linha avisa "abaixo do
+  que pagou" em vermelho). Viaja na URL (`pecas`, só os cards deste pedido,
+  `pecasDoPedido`; a porta confere por `precosPorPecaSchema`, até 400
+  peças, torto é 400, e só a chave que É card deste pedido conta e fica
+  lembrada) e **fica lembrado na ficha** (`Customer.resalePecas`,
+  `{ chave: { valor, em } }`, lido por `lerPrecosDePeca`; `pecasParaLembrar`:
+  as peças deste pedido são trocadas pelo que veio, as de outros pedidos
+  ficam, e acima de 300 as mais ANTIGAS saem — a revendedora que pede todo
+  mês acumularia centenas); a categoria com peça lembrada abre já aberta e
+  preenchida. A tela diz "N peças com preço próprio" na linha da categoria,
+  e a faixa "sai a R$ X a R$ Y" segue sendo a da REGRA (o preço por peça é
+  dito peça a peça). **Seis achados da segunda revisão**: o
+  número lembrado volta ao campo em pt-BR (`textoDoDinheiro`: "12,35",
+  nunca "12.345", que o leitor entenderia como doze mil); a prévia e o
+  endereço leem a MESMA lista (`pecasDoPedido` nos dois — o preço acima
+  do teto ganha aviso na linha, nunca some calado); o aviso da categoria
+  em preço fixo olha só as peças que saem pela regra dela
+  (`pagosDosCards`: a peça com preço próprio não pinta a categoria de
+  vermelho); a porta recorta as chaves ao que é card deste pedido antes
+  de lembrar; o teto de peças avisa na tela; e o lembrado é derivado
+  uma vez (`lembradasPorPeca`). **Limites ditos**: o card é produto × cor — dois
+  tamanhos da mesma cor com preços pagos diferentes saem pelo preço da
+  primeira linha, como o PDF sempre fez; e a categoria é o nome do cadastro,
+  então renomear a categoria na loja deixa a regra antiga órfã na ficha
+  (ela só some quando um pedido com a categoria nova for gerado). Guardado
+  em `revenda-por-categoria.test.ts` (a regra e a rota com banco de mentira)
+  e `resale-catalog.test.tsx` (a janela em jsdom).
 - **RN-069 · VENDA A PRAZO — "ENTREGUE · A RECEBER"** (`OrderStatus.ENTREGUE_A_RECEBER`,
   `lib/orders.ts`, 03/10/2026): pedido do dono — *"tem gente que compra hoje e
   só paga mês que vem, mas já está com o produto"*. Decidido com ele: é

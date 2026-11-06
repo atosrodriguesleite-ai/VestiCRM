@@ -37,7 +37,15 @@ import { PaymentMethodChanger } from "./payment-method";
 import { ShippingMethodChanger } from "./shipping-method";
 import { DeleteOrder } from "./delete-order";
 import { ResaleCatalog } from "./resale-catalog";
-import { categoriasDoPedido, lerRegrasDeCategoria, regrasDoPedido } from "@/lib/revenda/precos";
+import {
+  cardsDoPedido,
+  categoriasDoPedido,
+  lerPrecosDePeca,
+  lerRegrasDeCategoria,
+  pecasDoPedido,
+  regrasDoPedido,
+  valoresDasPecas,
+} from "@/lib/revenda/precos";
 import { CobrancaNfe } from "./cobranca-nfe";
 import { resolverFiscalDoPedido } from "@/lib/bling";
 import { avisoDePecasSemNcm } from "@/lib/fiscal-ncm";
@@ -301,6 +309,9 @@ export default async function OrderDetailPage({
     categoria: i.product?.category ?? null,
     pago: i.unitPrice,
     quantidade: i.quantity,
+    productId: i.productId,
+    nome: i.name,
+    cor: i.color,
   }));
 
   return (
@@ -419,6 +430,10 @@ export default async function OrderDetailPage({
                 savedCategorias={regrasDoPedido(
                   lerRegrasDeCategoria(order.customer.resaleCategorias),
                   categoriasDoPedido(pecasDaRevenda)
+                )}
+                savedPecas={pecasDoPedido(
+                  valoresDasPecas(lerPrecosDePeca(order.customer.resalePecas)),
+                  cardsDoPedido(pecasDaRevenda)
                 )}
               />
             )}

@@ -90,12 +90,88 @@ export function arredondarPara90(v: number): number {
   return Math.max(0, Math.round(v) - 0.1);
 }
 
+/**
+ * O PREÇO POR PEÇA (pedido do dono, 06/11/2026: *"gostaria de colocar o
+ * preço unitário, e não o valor completo por categoria"*): cada card do
+ * catálogo (produto × cor — a MESMA chave que a rota usa para montar os
+ * cards) pode ter o seu preço unitário digitado, que manda mais que a regra
+ * da categoria e que a margem geral. É o número que a pessoa decidiu: nunca
+ * arredondado, nunca zero.
+ */
+export type PrecosPorPeca = Record<string, number>;
+/** teto de peças com preço próprio numa URL (um pedido não passa disso; é só para a porta não engolir lixo — a tela avisa antes) */
+export const TETO_DE_PECAS = 400;
+/** a chave de um card leva no máximo isto (o nome congelado do item + cor) */
+export const TETO_DA_CHAVE = 220;
+/** quantas peças a ficha lembra, no máximo — as mais recentes ficam */
+export const TETO_DE_PECAS_LEMBRADAS = 300;
+
+/** a chave do card: a MESMA da rota do PDF (produto, ou o nome congelado quando não há produto) × cor */
+export function chaveDoCard(productId: string | null | undefined, nome: string, cor: string | null | undefined): string {
+  return `${productId ?? nome}|${cor ?? ""}`;
+}
+
+const precoDePecaSchema = z.number().finite().positive().max(TETO_DO_PRECO_FIXO);
+
+/** a forma que a porta aceita para o preço por peça: chave × número positivo dentro do teto */
+export const precosPorPecaSchema = z
+  .record(z.string().min(1).max(TETO_DA_CHAVE), precoDePecaSchema)
+  .refine((r) => Object.keys(r).length <= TETO_DE_PECAS, "peças demais");
+
+/** o que fica na ficha: o valor e quando foi escolhido (é o que decide quem sai no teto) */
+export type PecaLembrada = { valor: number; em: string };
+export type PecasLembradas = Record<string, PecaLembrada>;
+
+/** lê o JSON da ficha: a peça torta é pulada, o resto vale; nunca derruba */
+export function lerPrecosDePeca(cru: unknown): PecasLembradas {
+  if (!cru || typeof cru !== "object" || Array.isArray(cru)) return {};
+  const saida: PecasLembradas = {};
+  for (const [chave, v] of Object.entries(cru as Record<string, unknown>)) {
+    if (!chave || chave.length > TETO_DA_CHAVE) continue;
+    const r = v as { valor?: unknown; em?: unknown } | null;
+    const valor = precoDePecaSchema.safeParse(r?.valor);
+    if (!valor.success) continue;
+    const em = typeof r?.em === "string" && !Number.isNaN(Date.parse(r.em)) ? r.em : "1970-01-01T00:00:00.000Z";
+    saida[chave] = { valor: valor.data, em };
+  }
+  return saida;
+}
+
+/** só os valores (o que a conta e a tela usam) */
+export function valoresDasPecas(lembradas: PecasLembradas): PrecosPorPeca {
+  return Object.fromEntries(Object.entries(lembradas).map(([k, v]) => [k, v.valor]));
+}
+
+/**
+ * O que fica LEMBRADO na ficha: as peças deste pedido são trocadas pelo
+ * que veio agora (a tirada sai; a nova entra, com a hora), as de outros
+ * pedidos ficam — e, acima do teto, as mais ANTIGAS saem (a revendedora
+ * que pede todo mês acumularia centenas).
+ */
+export function pecasParaLembrar(
+  guardadas: PecasLembradas,
+  escolhidas: PrecosPorPeca,
+  chavesDoPedidoAgora: string[],
+  agora: Date = new Date()
+): PecasLembradas {
+  const saida: PecasLembradas = { ...guardadas };
+  for (const chave of chavesDoPedidoAgora) delete saida[chave];
+  const em = agora.toISOString();
+  for (const [chave, valor] of Object.entries(escolhidas)) saida[chave] = { valor, em };
+  const chaves = Object.keys(saida);
+  if (chaves.length <= TETO_DE_PECAS_LEMBRADAS) return saida;
+  const ordem = chaves.sort((a, b) => Date.parse(saida[b].em) - Date.parse(saida[a].em));
+  return Object.fromEntries(ordem.slice(0, TETO_DE_PECAS_LEMBRADAS).map((k) => [k, saida[k]]));
+}
+
 export type OpcoesDePreco = {
   /** a margem geral em %, para a categoria sem regra própria */
   margemGeral: number;
   /** arredondar para ,90 (só a margem; o fixo é o digitado) */
   arredondar: boolean;
   regras: RegrasPorCategoria;
+  /** o preço unitário por card, que manda mais que tudo (opcional) */
+  pecas?: PrecosPorPeca;
 };
 
 /** a regra que vale para uma categoria: a própria, ou a margem geral */
@@ -103,16 +179,45 @@ export function regraQueVale(categoria: string | null | undefined, o: OpcoesDePr
   return o.regras[nomeDaCategoria(categoria)] ?? { tipo: "margem", valor: o.margemGeral };
 }
 
-/** O preço de revenda de UMA peça: o que ela pagou × a regra da categoria. */
-export function precoDeRevenda(pago: number, categoria: string | null | undefined, o: OpcoesDePreco): number {
+/**
+ * O preço de revenda de UMA peça: o preço próprio do card, se houver;
+ * senão o que ela pagou × a regra da categoria (ou a margem geral).
+ */
+export function precoDeRevenda(pago: number, categoria: string | null | undefined, o: OpcoesDePreco, chave?: string): number {
+  const proprio = chave ? o.pecas?.[chave] : undefined;
+  if (proprio != null && proprio > 0) return proprio;
   const regra = regraQueVale(categoria, o);
   if (regra.tipo === "fixo") return regra.valor;
   const v = pago * (1 + regra.valor / 100);
   return o.arredondar ? arredondarPara90(v) : v;
 }
 
-/** uma linha do pedido: a categoria do cadastro, o preço unitário pago e quantas peças (padrão 1) */
-export type PecaDoPedido = { categoria: string | null | undefined; pago: number; quantidade?: number };
+/** uma linha do pedido: a categoria do cadastro, o preço unitário pago e quantas peças (padrão 1); com produto/nome/cor vira card */
+export type PecaDoPedido = {
+  categoria: string | null | undefined;
+  pago: number;
+  quantidade?: number;
+  productId?: string | null;
+  nome?: string;
+  cor?: string | null;
+};
+
+const quantidadeDe = (p: PecaDoPedido) => Math.max(1, Math.round(p.quantidade ?? 1));
+
+/** um card do catálogo (produto × cor), como a rota o monta: a PRIMEIRA linha dá o preço pago, as demais somam peças */
+export type CardDoPedido = { chave: string; nome: string; cor: string | null; categoria: string; pago: number; pecas: number };
+
+/** os cards do pedido na ordem das linhas (a mesma dedup da rota: a primeira linha de cada produto × cor manda no preço) */
+export function cardsDoPedido(pecas: PecaDoPedido[]): CardDoPedido[] {
+  const mapa = new Map<string, CardDoPedido>();
+  for (const p of pecas) {
+    const chave = chaveDoCard(p.productId ?? null, p.nome ?? "", p.cor ?? null);
+    const atual = mapa.get(chave);
+    if (atual) atual.pecas += quantidadeDe(p);
+    else mapa.set(chave, { chave, nome: p.nome ?? "", cor: p.cor ?? null, categoria: nomeDaCategoria(p.categoria), pago: p.pago, pecas: quantidadeDe(p) });
+  }
+  return [...mapa.values()];
+}
 
 export type CategoriaDoPedido = {
   nome: string;
@@ -121,8 +226,6 @@ export type CategoriaDoPedido = {
   menorPago: number;
   maiorPago: number;
 };
-
-const quantidadeDe = (p: PecaDoPedido) => Math.max(1, Math.round(p.quantidade ?? 1));
 
 /**
  * As categorias que o pedido tem, com o que a revendedora pagou em cada
@@ -180,18 +283,49 @@ export function avisoDaCategoria(
   if (!regra || regra.tipo !== "fixo") return null;
   const abaixo = pagos.filter((p) => p >= regra.valor).length;
   if (abaixo > 0) return { tipo: "abaixo-do-custo", pecasAbaixo: abaixo };
-  if (cat.maiorPago <= 0) return null;
-  const margemMinima = ((regra.valor - cat.maiorPago) / cat.maiorPago) * 100;
+  // a peça mais cara ENTRE as que saem pela regra (a com preço próprio não conta)
+  const maiorPago = pagos.length > 0 ? Math.max(...pagos) : cat.maiorPago;
+  if (maiorPago <= 0) return null;
+  const margemMinima = ((regra.valor - maiorPago) / maiorPago) * 100;
   if (margemMinima < MARGEM_MINIMA_SEM_AVISO) return { tipo: "margem-baixa", margemMinima };
   return null;
 }
 
-/** a faixa de preço que a categoria vai ter no papel (menor e maior peça pela regra) */
+/** a faixa de preço que a categoria vai ter no papel (menor e maior peça pela REGRA — o preço por peça é dito à parte) */
 export function faixaDePreco(cat: CategoriaDoPedido, o: OpcoesDePreco): { de: number; ate: number } {
+  const semPecas = { ...o, pecas: undefined };
   return {
-    de: precoDeRevenda(cat.menorPago, cat.nome, o),
-    ate: precoDeRevenda(cat.maiorPago, cat.nome, o),
+    de: precoDeRevenda(cat.menorPago, cat.nome, semPecas),
+    ate: precoDeRevenda(cat.maiorPago, cat.nome, semPecas),
   };
+}
+
+/** o número como a tela o escreve de volta num campo (vírgula, 2 casas no dinheiro): "99,90" — nunca "99.9", que o leitor pt-BR entenderia como milhar em "12.345" */
+export function textoDoDinheiro(v: number): string {
+  return v.toFixed(2).replace(".", ",");
+}
+
+/** a margem em % como texto do campo ("120", "12,5") */
+export function textoDaMargem(v: number): string {
+  return v.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+}
+
+/** o preço pago de cada peça dos cards SEM preço próprio (o aviso da categoria só olha quem sai pela regra dela) */
+export function pagosDosCards(cards: CardDoPedido[], pecasProprias: PrecosPorPeca = {}): number[] {
+  const saida: number[] = [];
+  for (const c of cards) {
+    if (pecasProprias[c.chave] != null) continue;
+    for (let i = 0; i < c.pecas; i++) saida.push(c.pago);
+  }
+  return saida;
+}
+
+/** só os preços de peças que existem NESTE pedido e que a porta aceita (chave e valor dentro dos tetos) */
+export function pecasDoPedido(precos: PrecosPorPeca, cards: CardDoPedido[]): PrecosPorPeca {
+  const chaves = new Set(cards.map((c) => c.chave));
+  return Object.fromEntries(
+    Object.entries(precos).filter(([chave, v]) => chaves.has(chave) && chave.length <= TETO_DA_CHAVE && precoDePecaSchema.safeParse(v).success)
+  );
 }
 
 /** só as regras de categorias que existem NESTE pedido e que a porta aceita (o que a janela mostra é o que se grava) */

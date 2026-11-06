@@ -14,11 +14,16 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { orderScope } from "@/lib/scope";
 import {
   categoriasDoPedido,
+  chaveDoCard,
   formatarPreco,
+  lerPrecosDePeca,
   lerRegrasDeCategoria,
+  pecasParaLembrar,
   precoDeRevenda,
+  precosPorPecaSchema,
   regrasParaLembrar,
   regrasSchema,
+  type PrecosPorPeca,
   type RegrasPorCategoria,
 } from "@/lib/revenda/precos";
 
@@ -33,6 +38,7 @@ import {
  *   &cats={"Regatas":{"tipo":"margem","valor":120},"Vestidos":{"tipo":"fixo","valor":89.9}}
  *     (RN-109: a regra por CATEGORIA, por cima da margem geral — a conta é a
  *     de `precoDeRevenda`, a mesma da prévia na janela)
+ *   &pecas={"<produto>|<cor>":59.9}  (o preço unitário de UM card, por cima de tudo)
  * Preferências (margem, arredondar, nome da loja, regras por categoria)
  * ficam salvas na ficha do lojista. Rodapé com convite discreto ao AtacadoPro.
  */
@@ -107,6 +113,28 @@ export async function GET(
       }
       regras = lidas.data;
     }
+    // o preço por PEÇA (card): a MESMA chave que monta os cards abaixo
+    let precosDePeca: PrecosPorPeca = {};
+    const pecasCru = sp.get("pecas");
+    if (showPrice && pecasCru) {
+      let json: unknown;
+      try {
+        json = JSON.parse(pecasCru);
+      } catch {
+        return NextResponse.json({ error: "Preços por peça inválidos" }, { status: 400 });
+      }
+      const lidos = precosPorPecaSchema.safeParse(json);
+      if (!lidos.success) {
+        return NextResponse.json({ error: "Preços por peça inválidos" }, { status: 400 });
+      }
+      precosDePeca = lidos.data;
+    }
+    const chavesAgora = [...new Set(order.items.map((i) => chaveDoCard(i.productId, i.name, i.color)))];
+    // só a chave que É card deste pedido conta e fica lembrada — chave solta
+    // na URL não pode ocupar a memória da ficha nem empurrar as de outros
+    // pedidos para fora do teto (achado da revisão)
+    const cardsAgora = new Set(chavesAgora);
+    precosDePeca = Object.fromEntries(Object.entries(precosDePeca).filter(([chave]) => cardsAgora.has(chave)));
 
     // a CATEGORIA de cada peça vem do cadastro de hoje (o item não a guarda);
     // peça sem produto cai em "Outras" — recortado pela loja (RN-013)
@@ -140,6 +168,13 @@ export async function GET(
               regras,
               categoriasAgora
             ),
+            // a peça deste pedido é trocada pelo que veio agora; as de outros
+            // pedidos ficam, até o teto (as mais antigas saem)
+            resalePecas: pecasParaLembrar(
+              lerPrecosDePeca(order.customer.resalePecas),
+              precosDePeca,
+              chavesAgora
+            ),
           }
         : {}),
       ...(storeName ? { resaleStoreName: storeName } : {}),
@@ -153,8 +188,8 @@ export async function GET(
 
     // a MESMA conta da prévia da janela (RN-109): a regra da categoria, ou a
     // margem geral; o ,90 só sobre a margem
-    const opcoes = { margemGeral: markup, arredondar: round, regras };
-    const price = (paid: number, categoria: string | null) => precoDeRevenda(paid, categoria, opcoes);
+    const opcoes = { margemGeral: markup, arredondar: round, regras, pecas: precosDePeca };
+    const price = (paid: number, categoria: string | null, chave: string) => precoDeRevenda(paid, categoria, opcoes, chave);
 
     // Um card POR COR, com a MESMA foto do romaneio (a da cor comprada,
     // guardada no item): a capa geral do produto mostrava a bermuda PRATA
@@ -172,7 +207,7 @@ export async function GET(
       }
     >();
     for (const it of order.items) {
-      const key = `${it.productId ?? it.name}|${it.color ?? ""}`;
+      const key = chaveDoCard(it.productId, it.name, it.color);
       if (!byPeca.has(key)) {
         byPeca.set(key, {
           name: it.name,
@@ -471,7 +506,7 @@ export async function GET(
         if (showPrice) {
           // preço na MESMA altura para a fileira toda (alinha pela dupla)
           const py = boxY - 16 - (maxLinhas - 1) * NOME_LH - 15;
-          center(page, money(price(item.paid, item.categoria)), cx, py, 11.5, bold, BLACK);
+          center(page, money(price(item.paid, item.categoria, key)), cx, py, 11.5, bold, BLACK);
         }
       }
 

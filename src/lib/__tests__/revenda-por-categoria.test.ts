@@ -2,8 +2,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   CATEGORIA_OUTRAS,
+  TETO_DE_PECAS_LEMBRADAS,
   avisoDaCategoria,
+  cardsDoPedido,
   categoriasDoPedido,
+  chaveDoCard,
+  lerPrecosDePeca,
+  pagosDosCards,
+  pecasDoPedido,
+  pecasParaLembrar,
+  textoDaMargem,
+  textoDoDinheiro,
+  precosPorPecaSchema,
+  valoresDasPecas,
   faixaDePreco,
   lerRegrasDeCategoria,
   pagosPorCategoria,
@@ -30,7 +41,7 @@ const estado = vi.hoisted(() => ({
   pedido: null as null | Record<string, unknown>,
   produtos: [] as { id: string; category: string }[],
   gravado: null as null | Record<string, unknown>,
-  precosPedidos: [] as { pago: number; categoria: string | null; regras: unknown }[],
+  precosPedidos: [] as { pago: number; categoria: string | null; regras: unknown; pecas?: unknown; chave?: string }[],
 }));
 vi.mock("@/lib/auth", () => {
   class AuthError extends Error {}
@@ -60,9 +71,9 @@ vi.mock("@/lib/revenda/precos", async (orig) => {
   const real = await orig<typeof import("@/lib/revenda/precos")>();
   return {
     ...real,
-    precoDeRevenda: (pago: number, categoria: string | null, o: { regras: unknown }) => {
-      estado.precosPedidos.push({ pago, categoria, regras: o.regras });
-      return real.precoDeRevenda(pago, categoria, o as Parameters<typeof real.precoDeRevenda>[2]);
+    precoDeRevenda: (pago: number, categoria: string | null, o: { regras: unknown }, chave?: string) => {
+      estado.precosPedidos.push({ pago, categoria, regras: o.regras, pecas: (o as { pecas?: unknown }).pecas, chave });
+      return real.precoDeRevenda(pago, categoria, o as Parameters<typeof real.precoDeRevenda>[2], chave);
     },
   };
 });
@@ -92,6 +103,70 @@ describe("a conta do preço", () => {
     const o = { margemGeral: 100, arredondar: false, regras: { [CATEGORIA_OUTRAS]: { tipo: "fixo" as const, valor: 20 } } };
     expect(precoDeRevenda(10, null, o)).toBe(20);
     expect(precoDeRevenda(10, "  ", o)).toBe(20);
+  });
+});
+
+describe("o preço por PEÇA manda mais que a categoria", () => {
+  const o = { margemGeral: 100, arredondar: true, regras: { Regatas: { tipo: "fixo" as const, valor: 59.9 } }, pecas: { "p-reg|Preto": 49.9 } };
+  it("o card com preço próprio sai por ele, sem arredondar; os outros seguem a categoria/margem", () => {
+    expect(precoDeRevenda(32, "Regatas", o, "p-reg|Preto")).toBe(49.9);
+    expect(precoDeRevenda(32, "Regatas", o, "p-reg|Azul")).toBe(59.9);
+    expect(precoDeRevenda(30, "Vestidos", o, "p-ves|Rosa")).toBe(59.9);
+    expect(precoDeRevenda(32, "Regatas", o)).toBe(59.9);
+    // a faixa da categoria ignora o preço por peça (ele é dito à parte)
+    const [reg] = categoriasDoPedido([{ categoria: "Regatas", pago: 32 }]);
+    expect(faixaDePreco(reg, o)).toEqual({ de: 59.9, ate: 59.9 });
+  });
+  it("a chave do card é produto × cor, ou o nome congelado sem produto — a MESMA da rota", () => {
+    expect(chaveDoCard("p1", "Regata", "Preto")).toBe("p1|Preto");
+    expect(chaveDoCard(null, "Brinde", null)).toBe("Brinde|");
+    const cards = cardsDoPedido([
+      { categoria: "Regatas", pago: 32, quantidade: 2, productId: "p1", nome: "Regata", cor: "Preto", size: "P" } as never,
+      { categoria: "Regatas", pago: 35, quantidade: 1, productId: "p1", nome: "Regata", cor: "Preto" },
+      { categoria: null, pago: 5, productId: null, nome: "Brinde", cor: null },
+    ]);
+    // a primeira linha manda no preço pago (como a rota), as peças somam
+    expect(cards).toEqual([
+      { chave: "p1|Preto", nome: "Regata", cor: "Preto", categoria: "Regatas", pago: 32, pecas: 3 },
+      { chave: "Brinde|", nome: "Brinde", cor: null, categoria: "Outras", pago: 5, pecas: 1 },
+    ]);
+    expect(pecasDoPedido({ "p1|Preto": 49.9, "p9|X": 10, "Brinde|": 0 }, cards)).toEqual({ "p1|Preto": 49.9 });
+    // o aviso da categoria olha só quem sai pela regra: a peça com preço próprio fica de fora
+    expect(pagosDosCards(cards, { "p1|Preto": 49.9 })).toEqual([5]);
+    expect(pagosDosCards(cards)).toEqual([32, 32, 32, 5]);
+    expect(textoDoDinheiro(12.345)).toBe("12,35");
+    expect(textoDoDinheiro(99.9)).toBe("99,90");
+    expect(textoDaMargem(120)).toBe("120");
+    expect(textoDaMargem(12.5)).toBe("12,5");
+  });
+  it("a porta aceita só número positivo dentro do teto, e a ficha lê pulando o torto", () => {
+    expect(precosPorPecaSchema.safeParse({ "p1|Preto": 49.9 }).success).toBe(true);
+    expect(precosPorPecaSchema.safeParse({ "p1|Preto": 0 }).success).toBe(false);
+    expect(precosPorPecaSchema.safeParse({ "p1|Preto": -1 }).success).toBe(false);
+    expect(precosPorPecaSchema.safeParse({ "p1|Preto": 200000 }).success).toBe(false);
+    expect(precosPorPecaSchema.safeParse([]).success).toBe(false);
+    expect(valoresDasPecas(lerPrecosDePeca({ "p1|Preto": { valor: 49.9, em: "2026-11-06T10:00:00.000Z" }, "p2|": { valor: 0 }, "p3|": { valor: "x" }, "": { valor: 1 } }))).toEqual({ "p1|Preto": 49.9 });
+    expect(lerPrecosDePeca(null)).toEqual({});
+    expect(lerPrecosDePeca({ "p1|": { valor: 10, em: "torto" } })["p1|"].em).toBe("1970-01-01T00:00:00.000Z");
+  });
+  it("lembrar: a peça deste pedido é trocada, as de outros ficam, e acima do teto as mais antigas saem", () => {
+    const agora = new Date("2026-11-06T12:00:00.000Z");
+    const guardadas = {
+      "p1|Preto": { valor: 40, em: "2026-10-01T00:00:00.000Z" },
+      "p2|Azul": { valor: 70, em: "2026-10-02T00:00:00.000Z" },
+    };
+    expect(pecasParaLembrar(guardadas, { "p3|": 15 }, ["p1|Preto", "p3|"], agora)).toEqual({
+      "p2|Azul": { valor: 70, em: "2026-10-02T00:00:00.000Z" },
+      "p3|": { valor: 15, em: agora.toISOString() },
+    });
+    const muitas = Object.fromEntries(
+      Array.from({ length: TETO_DE_PECAS_LEMBRADAS }, (_, i) => [`p${i}|`, { valor: 10, em: new Date(2026, 0, 1, 0, i).toISOString() }])
+    );
+    const depois = pecasParaLembrar(muitas, { nova: 20 }, ["nova"], agora);
+    expect(Object.keys(depois)).toHaveLength(TETO_DE_PECAS_LEMBRADAS);
+    expect(depois.nova.valor).toBe(20);
+    expect(depois["p0|"]).toBeUndefined(); // a mais antiga saiu
+    expect(depois[`p${TETO_DE_PECAS_LEMBRADAS - 1}|`]).toBeDefined();
   });
 });
 
@@ -220,6 +295,28 @@ describe("a rota do PDF de revenda", () => {
       Regatas: regras.Regatas,
       Vestidos: regras.Vestidos,
     });
+  });
+  it("o preço por PEÇA da URL chega à conta pela chave do card e fica lembrado; torto é 400", async () => {
+    (estado.pedido!.customer as Record<string, unknown>).resalePecas = {
+      "p-reg|Preto": { valor: 40, em: "2026-10-01T00:00:00.000Z" },
+      "p-outro|Azul": { valor: 70, em: "2026-10-02T00:00:00.000Z" },
+    };
+    const pecas = encodeURIComponent(JSON.stringify({ "p-ves|": 99.9 }));
+    const r = await chamar(`preco=margem&markup=100&pecas=${pecas}`);
+    expect(r.status).toBe(200);
+    expect(estado.precosPedidos.map((p) => p.chave)).toEqual(["p-reg|Preto", "p-ves|", "Brinde|"]);
+    expect(estado.precosPedidos[0].pecas).toEqual({ "p-ves|": 99.9 });
+    const lembradas = estado.gravado?.resalePecas as Record<string, { valor: number }>;
+    expect(lembradas["p-reg|Preto"]).toBeUndefined(); // peça deste pedido sem preço agora: saiu
+    expect(lembradas["p-outro|Azul"].valor).toBe(70); // de outro pedido: fica
+    expect(lembradas["p-ves|"].valor).toBe(99.9);
+    // a chave que não é card deste pedido não conta nem fica lembrada
+    estado.precosPedidos = [];
+    await chamar(`preco=margem&markup=100&pecas=${encodeURIComponent(JSON.stringify({ "p-ves|": 80, "p-solta|X": 10 }))}`);
+    expect(estado.precosPedidos[0].pecas).toEqual({ "p-ves|": 80 });
+    expect((estado.gravado?.resalePecas as Record<string, unknown>)["p-solta|X"]).toBeUndefined();
+    expect((await chamar(`preco=margem&markup=100&pecas=${encodeURIComponent('{"p-ves|":0}')}`)).status).toBe(400);
+    expect((await chamar("preco=margem&markup=100&pecas=nao-e-json")).status).toBe(400);
   });
   it("sem regra na URL, a categoria deste pedido que tinha regra guardada SAI da ficha (a pessoa a tirou)", async () => {
     const r = await chamar("preco=margem&markup=100");

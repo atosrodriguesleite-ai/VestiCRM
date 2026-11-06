@@ -714,6 +714,10 @@ model Customer {
   // { "Regatas": { "tipo": "margem", "valor": 120 }, "Vestidos": { "tipo": "fixo", "valor": 89.9 } }
   // — quem lê é `lerRegrasDeCategoria` (torto vira "sem regra", nunca derruba)
   resaleCategorias Json?
+  // o preço unitário por PEÇA do catálogo de revenda (RN-109): JSON
+  // { "<productId ou nome>|<cor>": { "valor": 59.9, "em": "2026-11-06T..." } }
+  // — a peça manda mais que a categoria; lido por `lerPrecosDePeca`, com teto
+  resalePecas Json?
   lastPurchaseAt  DateTime?
   nextContactAt   DateTime?
   lastContactAt   DateTime?
