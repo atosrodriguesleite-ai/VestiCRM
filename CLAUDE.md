@@ -369,6 +369,57 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   aparelho). Guardado em `faturamento-vivo.test.ts` (regra e porta com
   banco de mentira) e `faturamento-vivo.test.tsx` (a tela em jsdom: balão,
   troca de comparação, falha, acumulado, preferência).
+- **RN-109 · O CATÁLOGO DE REVENDA TEM PREÇO POR CATEGORIA: MARGEM PRÓPRIA
+  OU PREÇO FIXO, POR CIMA DA MARGEM GERAL, E A PRÉVIA É A MESMA CONTA DO PDF**
+  (`lib/revenda/precos.ts` pura, rota `/api/orders/[id]/resale-pdf`, janela
+  `pedidos/[id]/resale-catalog.tsx`, `Customer.resaleCategorias`,
+  06/11/2026): pedido do dono — *"no catálogo de revenda, poder colocar os
+  preços das categorias de forma personalizada, da forma que o cliente final
+  quiser"*. O catálogo de revenda (o PDF neutro que a revendedora manda à
+  cliente da ponta) só tinha UMA margem para o pedido inteiro. Agora, com
+  "Com o preço de venda dele" ligado, a janela lista **as categorias daquele
+  pedido** (`categoriasDoPedido`: nome, quantas peças, o menor e o maior
+  preço que ela pagou; peça sem categoria no cadastro é "Outras", por
+  último) e cada linha escolhe: **margem geral** (o padrão, os % de cima),
+  **margem própria em %** ou **preço fixo em R$** para toda peça da
+  categoria. **A conta é UMA** (`precoDeRevenda`): a janela mostra "sai a
+  R$ X a R$ Y" pela mesma função que a rota usa no papel — e o **,90 só
+  arredonda a margem**, nunca o fixo (arredondar o número que a pessoa
+  digitou seria mudar o que ela decidiu). **O preço fixo avisa**
+  (`avisoDaCategoria`): a mesma categoria mistura custos (a regata lisa de
+  R$ 32 e a estampada de R$ 45 saindo as duas a R$ 59,90 dão margens muito
+  diferentes), então a linha fica **vermelha** quando alguma peça custou o
+  preço fixo ou mais (venderia no prejuízo) e **amarela** com margem abaixo
+  de 20% na peça mais cara; margem em % nunca avisa, porque acompanha o
+  custo. **As regras viajam na URL** (`cats`, JSON só das categorias DESTE
+  pedido, `regrasDoPedido`) e a rota as confere pela forma
+  (`regraSchema`/`regrasSchema`, UMA forma para a porta e para o leitor da
+  ficha: até 60 categorias, tipo da lista, **preço fixo nunca zero** — R$
+  0,00 no papel não é preço — e até R$ 100 mil, margem de 0% a 1000%; torto
+  é **400**, nunca um PDF com preço inventado); **a categoria de cada
+  peça vem do cadastro de hoje** (o item não a guarda), recortada pela loja
+  (RN-013). **Ficam lembradas na ficha da revendedora** (`resaleCategorias`,
+  JSON lido por `lerRegrasDeCategoria` — a categoria torta é pulada, o
+  resto vale, nunca derruba a ficha nem o PDF) pela régua de
+  `regrasParaLembrar`: a categoria que NÃO está neste pedido continua como
+  estava (o pedido só de regatas não apaga a regra dos vestidos), a regra
+  tirada nesta janela sai, a nova entra; e a janela abre já preenchida com
+  o lembrado (só as regras das categorias DESTE pedido ligam o preço, e a
+  margem geral lembrada de 0% abre como 0 — não como o palpite de 100).
+  **Achados da revisão** (10, todos corrigidos): o número é lido pela régua
+  da casa (`numeroBR`: "1.299,90" é mil e tanto, não R$ 1,30); **as peças
+  contam pela quantidade** da linha ("Regata ×12" são 12 peças, e o aviso
+  de prejuízo conta peças); **trocar o modo da linha apaga o número** (o
+  "99,90" de preço fixo virando 99,9% de margem iria para o papel sem
+  ninguém ver); o formato do preço é um só (`formatarPreco`, papel e
+  prévia); e a prévia dos R$ 35 passa por `precoDeRevenda`. **Limites
+  ditos**: é por categoria, nunca peça a peça (pedido de 40 peças viraria
+  um formulário enorme no celular — exceção pontual é outra entrega); e a
+  categoria é o nome do cadastro, então renomear a categoria na loja
+  deixa a regra antiga órfã na ficha (ela só some quando um pedido com a
+  categoria nova for gerado). Guardado em `revenda-por-categoria.test.ts`
+  (a regra e a rota com banco de mentira) e `resale-catalog.test.tsx` (a
+  janela em jsdom).
 - **RN-069 · VENDA A PRAZO — "ENTREGUE · A RECEBER"** (`OrderStatus.ENTREGUE_A_RECEBER`,
   `lib/orders.ts`, 03/10/2026): pedido do dono — *"tem gente que compra hoje e
   só paga mês que vem, mas já está com o produto"*. Decidido com ele: é

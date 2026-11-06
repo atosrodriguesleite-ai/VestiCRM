@@ -37,6 +37,7 @@ import { PaymentMethodChanger } from "./payment-method";
 import { ShippingMethodChanger } from "./shipping-method";
 import { DeleteOrder } from "./delete-order";
 import { ResaleCatalog } from "./resale-catalog";
+import { categoriasDoPedido, lerRegrasDeCategoria, regrasDoPedido } from "@/lib/revenda/precos";
 import { CobrancaNfe } from "./cobranca-nfe";
 import { resolverFiscalDoPedido } from "@/lib/bling";
 import { avisoDePecasSemNcm } from "@/lib/fiscal-ncm";
@@ -295,6 +296,13 @@ export default async function OrderDetailPage({
         })()
       : null;
 
+  // RN-109: a categoria de cada peça vem do cadastro de hoje; linha ×12 são 12 peças
+  const pecasDaRevenda = order.items.map((i) => ({
+    categoria: i.product?.category ?? null,
+    pago: i.unitPrice,
+    quantidade: i.quantity,
+  }));
+
   return (
     <div className="max-w-5xl mx-auto">
       <Link
@@ -405,6 +413,13 @@ export default async function OrderDetailPage({
                 savedMarkup={order.customer.resaleMarkup}
                 savedRound={order.customer.resaleRound}
                 savedStoreName={order.customer.resaleStoreName}
+                // RN-109: as peças deste pedido (a janela deriva as categorias) e
+                // SÓ as regras lembradas que valem para ele — as outras não saem do servidor
+                pecas={pecasDaRevenda}
+                savedCategorias={regrasDoPedido(
+                  lerRegrasDeCategoria(order.customer.resaleCategorias),
+                  categoriasDoPedido(pecasDaRevenda)
+                )}
               />
             )}
             {order.conversationId && (

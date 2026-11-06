@@ -12,6 +12,15 @@ import sharp from "sharp";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { orderScope } from "@/lib/scope";
+import {
+  categoriasDoPedido,
+  formatarPreco,
+  lerRegrasDeCategoria,
+  precoDeRevenda,
+  regrasParaLembrar,
+  regrasSchema,
+  type RegrasPorCategoria,
+} from "@/lib/revenda/precos";
 
 /**
  * Catálogo de REVENDA em PDF — o lojista/sacoleira encaminha ao cliente da
@@ -21,8 +30,11 @@ import { orderScope } from "@/lib/scope";
  *   ?preco=nao
  *   ?preco=margem&markup=100
  *   ?preco=margem&markup=100&round=1   (arredonda para ,90)
- * Preferências (margem, arredondar, nome da loja) ficam salvas na ficha do
- * lojista. Rodapé com convite discreto ao AtacadoPro.
+ *   &cats={"Regatas":{"tipo":"margem","valor":120},"Vestidos":{"tipo":"fixo","valor":89.9}}
+ *     (RN-109: a regra por CATEGORIA, por cima da margem geral — a conta é a
+ *     de `precoDeRevenda`, a mesma da prévia na janela)
+ * Preferências (margem, arredondar, nome da loja, regras por categoria)
+ * ficam salvas na ficha do lojista. Rodapé com convite discreto ao AtacadoPro.
  */
 
 // pedidos grandes: TODA foto é recortada e reconvertida (sharp) — leva segundos
@@ -36,11 +48,8 @@ const PHOTOBG = rgb(0.965, 0.965, 0.965);
 const CREME = rgb(0.96, 0.94, 0.9);
 const CREME_DIM = rgb(0.72, 0.69, 0.64);
 
-const money = (v: number) =>
-  `R$ ${v.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
-
-/** Preço psicológico terminando em ,90 (ex.: 70 → 69,90; 65 → 64,90). */
-const charm = (v: number) => Math.max(0, Math.round(v) - 0.1);
+// o MESMO formato da prévia da janela (RN-109)
+const money = formatarPreco;
 
 const MAIN_SITE = (
   process.env.MAIN_SITE_URL?.trim() || "https://www.atacadopro.com"
@@ -81,12 +90,58 @@ export async function GET(
     const round = sp.get("round") === "1";
     const storeName = (sp.get("loja") ?? "").trim().slice(0, 40);
     const showPrice = priceMode === "margem";
+    // as regras por categoria: JSON na URL, conferido pela MESMA forma que a
+    // janela monta; torto é recusado (nunca um PDF com preço inventado)
+    let regras: RegrasPorCategoria = {};
+    const catsCru = sp.get("cats");
+    if (showPrice && catsCru) {
+      let json: unknown;
+      try {
+        json = JSON.parse(catsCru);
+      } catch {
+        return NextResponse.json({ error: "Regras por categoria inválidas" }, { status: 400 });
+      }
+      const lidas = regrasSchema.safeParse(json);
+      if (!lidas.success) {
+        return NextResponse.json({ error: "Regras por categoria inválidas" }, { status: 400 });
+      }
+      regras = lidas.data;
+    }
+
+    // a CATEGORIA de cada peça vem do cadastro de hoje (o item não a guarda);
+    // peça sem produto cai em "Outras" — recortado pela loja (RN-013)
+    const idsDosProdutos = [...new Set(order.items.map((i) => i.productId).filter((v): v is string => !!v))];
+    const categoriaPorProduto = new Map(
+      (
+        await db.product.findMany({
+          where: { id: { in: idsDosProdutos }, companyId: user.companyId },
+          select: { id: true, category: true },
+        })
+      ).map((p) => [p.id, p.category] as const)
+    );
+    const categoriaDoItem = (productId: string | null) =>
+      productId ? (categoriaPorProduto.get(productId) ?? null) : null;
+    const categoriasAgora = categoriasDoPedido(
+      order.items.map((i) => ({ categoria: categoriaDoItem(i.productId), pago: i.unitPrice }))
+    ).map((c) => c.nome);
 
     // preferências LEMBRADAS, nunca apagadas: gerar o PDF com o campo de
     // loja vazio zerava o resaleStoreName salvo da lojista (auditoria
     // 07/08/2026) — agora só persiste o que veio preenchido
     const lembrar = {
-      ...(showPrice ? { resaleMarkup: markup, resaleRound: round } : {}),
+      ...(showPrice
+        ? {
+            resaleMarkup: markup,
+            resaleRound: round,
+            // a categoria que não está neste pedido continua como estava; a
+            // tirada nesta janela sai (RN-109)
+            resaleCategorias: regrasParaLembrar(
+              lerRegrasDeCategoria(order.customer.resaleCategorias),
+              regras,
+              categoriasAgora
+            ),
+          }
+        : {}),
       ...(storeName ? { resaleStoreName: storeName } : {}),
     };
     if (Object.keys(lembrar).length > 0) {
@@ -96,10 +151,10 @@ export async function GET(
       });
     }
 
-    const price = (paid: number) => {
-      const v = paid * (1 + markup / 100);
-      return round ? charm(v) : v;
-    };
+    // a MESMA conta da prévia da janela (RN-109): a regra da categoria, ou a
+    // margem geral; o ,90 só sobre a margem
+    const opcoes = { margemGeral: markup, arredondar: round, regras };
+    const price = (paid: number, categoria: string | null) => precoDeRevenda(paid, categoria, opcoes);
 
     // Um card POR COR, com a MESMA foto do romaneio (a da cor comprada,
     // guardada no item): a capa geral do produto mostrava a bermuda PRATA
@@ -111,6 +166,7 @@ export async function GET(
         name: string;
         color: string | null;
         paid: number;
+        categoria: string | null;
         productId: string | null;
         imageUrl: string | null;
       }
@@ -122,6 +178,7 @@ export async function GET(
           name: it.name,
           color: it.color,
           paid: it.unitPrice,
+          categoria: categoriaDoItem(it.productId),
           productId: it.productId,
           imageUrl: it.imageUrl,
         });
@@ -414,7 +471,7 @@ export async function GET(
         if (showPrice) {
           // preço na MESMA altura para a fileira toda (alinha pela dupla)
           const py = boxY - 16 - (maxLinhas - 1) * NOME_LH - 15;
-          center(page, money(price(item.paid)), cx, py, 11.5, bold, BLACK);
+          center(page, money(price(item.paid, item.categoria)), cx, py, 11.5, bold, BLACK);
         }
       }
 

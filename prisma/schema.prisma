@@ -710,6 +710,10 @@ model Customer {
   resaleMarkup    Float        @default(0) // margem de revenda (%)
   resaleRound     Boolean      @default(false) // arredondar preço para ,90
   resaleStoreName String? // nome da loja impresso no catálogo
+  // o preço por CATEGORIA do catálogo de revenda (RN-109): JSON
+  // { "Regatas": { "tipo": "margem", "valor": 120 }, "Vestidos": { "tipo": "fixo", "valor": 89.9 } }
+  // — quem lê é `lerRegrasDeCategoria` (torto vira "sem regra", nunca derruba)
+  resaleCategorias Json?
   lastPurchaseAt  DateTime?
   nextContactAt   DateTime?
   lastContactAt   DateTime?
