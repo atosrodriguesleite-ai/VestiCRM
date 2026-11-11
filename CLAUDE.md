@@ -3368,6 +3368,37 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   confirmado em relatos de usuários e nas notas de versão do Evolution, não na
   definição do Baileys — por isso o leitor aceita os dois nomes conhecidos
   em vez de apostar num só.
+- **RN-110 · O QR CODE DA CONEXÃO SE RENOVA NA TELA, E A TENTATIVA QUE
+  VENCEU É DITA** (`lib/qr-da-conexao.ts` pura, `GET /api/whatsapp/evolution?qr=1`,
+  `comunicacao/whatsapp-connect.tsx`, 11/11/2026): relato do dono com o print
+  — *"estou tentando reconectar o WhatsApp, mas está demorando muito"* e, depois
+  de recarregar, *"ele garra nessa tela"*. O WhatsApp **troca o QR Code
+  sozinho**: o primeiro vale ~60 s e os seguintes ~20 s (conferido no código do
+  Baileys), e depois de um teto de códigos o servidor fecha a tentativa. A tela
+  buscava o código UMA vez, no clique, e mostrava a mesma imagem para sempre com
+  a frase "a tela atualiza sozinha" — só o STATUS atualizava. Quem demorasse
+  lia um código morto; e como o Conectar, com a tentativa já aberta, devolve o
+  código que o servidor tem NAQUELE instante, recarregar e clicar de novo
+  entregava um código com poucos segundos de vida. Agora: (1) **a consulta da
+  tela pede o código de AGORA** (`?qr=1`, a cada 3 s, uma por vez) e a imagem é
+  trocada quando muda — a tela diz "o código se renova sozinho (renovado N×)";
+  (2) **a porta só busca código com o servidor ESPERANDO a leitura**
+  ("connecting": ali a chamada devolve o que ele já tem, sem iniciar nada —
+  conferido no código do Evolution); com a conexão **fechada nunca busca** —
+  buscar ali ABRIRIA uma tentativa nova, e a aba esquecida manteria um
+  pareamento vivo para sempre; quem abre tentativa é o clique; sem `?qr=1`
+  (primeira carga) o servidor nem é chamado, e a busca que falha não derruba a
+  consulta; (3) **a tentativa que venceu é DITA** (`passoDaTentativa`): quatro
+  consultas seguidas com a conexão fechada tiram o código da tela, param a
+  consulta e mostram a frase com o botão "Gerar código novo" — uma fechada só
+  não encerra, porque logo depois da leitura o WhatsApp fecha e reabre a
+  conexão e entre um ciclo de códigos e outro o servidor passa um instante
+  fechado. **Limites ditos**: a tela não sabe se o CELULAR recusou a leitura
+  (o aviso aparece só no aparelho); e se o servidor Evolution estiver com a
+  versão do WhatsApp desatualizada, o celular lê o código e responde "não foi
+  possível conectar" — isso é atualização do servidor na Hostinger, não tela.
+  Guardado em `qr-da-conexao.test.ts` (a regra), `sessao-viva-rotas.test.ts`
+  (a porta) e `whatsapp-connect.test.tsx` (a tela em jsdom).
 - **RN-106 · O PULSO DO WHATSAPP: O ECO DO ENVIO PROVA QUE FUNCIONA, O
   SISTEMA SE CURA UMA VEZ ANTES DE ALARMAR, E A QUEDA DIZ O MOTIVO**
   (`lib/comm/pulso-regra.ts` pura + `lib/comm/pulso-do-webhook.ts`, rodada

@@ -77,6 +77,9 @@ vi.mock("@/lib/health", () => ({ alertWhatsappDown: alerta }));
 import { GET } from "@/app/api/whatsapp/evolution/route";
 import { POST as CONECTAR } from "@/app/api/whatsapp/evolution/connect/route";
 
+/** A consulta da tela; com `qr`, a tela está esperando a leitura (RN-110). */
+const consulta = (qr = false) => new Request(`http://x/api/whatsapp/evolution${qr ? "?qr=1" : ""}`);
+
 const pedido = (corpo?: unknown) =>
   new Request("http://x/api/whatsapp/evolution/connect", {
     method: "POST",
@@ -118,7 +121,7 @@ afterEach(() => vi.useRealTimers());
 describe("tela de conexão (GET): o 'open' só vale com a sonda viva", () => {
   it("sessão morta nas DUAS sondas → DESCONECTADO, sessaoCaida, aviso de queda — e o provedor NÃO vira o simulado", async () => {
     evo.sonda.mockResolvedValue({ ok: false, status: 400, data: CONEXAO_FECHADA });
-    const res = await rodar(GET());
+    const res = await rodar(GET(consulta()));
     const d = await res.json();
     expect(d.status).toBe("DESCONECTADO");
     expect(d.sessaoCaida).toBe(true);
@@ -135,7 +138,7 @@ describe("tela de conexão (GET): o 'open' só vale com a sonda viva", () => {
     evo.sonda
       .mockResolvedValueOnce({ ok: false, status: 400, data: CONEXAO_FECHADA })
       .mockResolvedValueOnce({ ok: true, status: 201, data: {} });
-    const d = await (await rodar(GET())).json();
+    const d = await (await rodar(GET(consulta()))).json();
     expect(d.status).toBe("CONECTADO");
     expect(d.sessaoCaida).toBe(false);
     expect(estado.updateManys).toHaveLength(0);
@@ -144,7 +147,7 @@ describe("tela de conexão (GET): o 'open' só vale com a sonda viva", () => {
 
   it("durante um reinício pedido a sonda nem roda (a sessão ainda assenta)", async () => {
     estado.settings!.reinicioPedidoEm = new Date();
-    const d = await (await rodar(GET())).json();
+    const d = await (await rodar(GET(consulta()))).json();
     expect(d.status).toBe("CONECTADO");
     expect(evo.sonda).not.toHaveBeenCalled();
   });
@@ -153,7 +156,7 @@ describe("tela de conexão (GET): o 'open' só vale com a sonda viva", () => {
     estado.settings!.reinicioPedidoEm = new Date();
     estado.settings!.evolutionStatus = "DESCONECTADO";
     estado.settings!.evolutionDownSince = new Date();
-    const d = await (await rodar(GET())).json();
+    const d = await (await rodar(GET(consulta()))).json();
     expect(d.status).toBe("DESCONECTADO");
     expect(estado.updates.some((u) => u.data.evolutionStatus === "CONECTADO")).toBe(false);
   });
@@ -162,7 +165,7 @@ describe("tela de conexão (GET): o 'open' só vale com a sonda viva", () => {
     estado.settings!.evolutionStatus = "DESCONECTADO";
     estado.settings!.evolutionDownSince = new Date();
     evo.sonda.mockResolvedValue({ ok: false, status: 0, data: null });
-    const d = await (await rodar(GET())).json();
+    const d = await (await rodar(GET(consulta()))).json();
     expect(d.status).toBe("DESCONECTADO");
     expect(d.sessaoCaida).toBe(false);
   });
@@ -171,7 +174,7 @@ describe("tela de conexão (GET): o 'open' só vale com a sonda viva", () => {
     estado.settings!.evolutionStatus = "DESCONECTADO";
     estado.settings!.evolutionDownSince = new Date();
     evo.sonda.mockResolvedValue({ ok: true, status: 201, data: {} });
-    const d = await (await rodar(GET())).json();
+    const d = await (await rodar(GET(consulta()))).json();
     expect(d.status).toBe("CONECTADO");
     expect(estado.updateManys[0]).toMatchObject({ data: { evolutionDownSince: null } });
   });
@@ -181,7 +184,7 @@ describe("tela de conexão (GET): o 'open' só vale com a sonda viva", () => {
     evo.sonda
       .mockResolvedValueOnce({ ok: false, status: 400, data: CONEXAO_FECHADA })
       .mockResolvedValueOnce({ ok: true, status: 201, data: {} });
-    const d = await (await rodar(GET())).json();
+    const d = await (await rodar(GET(consulta()))).json();
     expect(d.status).toBe("CONECTADO");
     expect(alerta).not.toHaveBeenCalled();
   });
@@ -189,7 +192,7 @@ describe("tela de conexão (GET): o 'open' só vale com a sonda viva", () => {
   it("vinda do 'aguardando QR' com a sessão morrendo: três sondas mortas → DESCONECTADO com o botão do QR, sem tocar o alarme (a pessoa está na tela)", async () => {
     estado.settings!.evolutionStatus = "AGUARDANDO_QR";
     evo.sonda.mockResolvedValue({ ok: false, status: 400, data: CONEXAO_FECHADA });
-    const d = await (await rodar(GET())).json();
+    const d = await (await rodar(GET(consulta()))).json();
     expect(d.status).toBe("DESCONECTADO");
     expect(d.sessaoCaida).toBe(true);
     expect(evo.sonda).toHaveBeenCalledTimes(3);
@@ -263,5 +266,54 @@ describe("Conectar: o servidor que acha a sessão 'open' não entrega QR — o b
     const res2 = await rodar(CONECTAR(pedido({ recriar: true })));
     expect((await res2.json()).qr).toBe("QR2");
     expect(evo.logout).toHaveBeenCalledTimes(1);
+  });
+});
+
+// A porta da RN-110 (o guardião declarado é qr-da-conexao.test.ts)
+describe("o QR Code de agora (GET ?qr=1): só com o servidor esperando a leitura", () => {
+  const esperando = { ok: true, status: 200, data: { instance: { state: "connecting" } } };
+  beforeEach(() => {
+    estado.settings = { ...estado.settings, evolutionStatus: "AGUARDANDO_QR" };
+  });
+
+  it("esperando a leitura e a tela pediu → devolve o código que o servidor tem AGORA", async () => {
+    evo.state.mockResolvedValue(esperando);
+    evo.connect.mockResolvedValue({ ok: true, status: 200, data: { base64: "data:image/png;base64,NOVO" } });
+    const d = await (await rodar(GET(consulta(true)))).json();
+    expect(d.status).toBe("AGUARDANDO_QR");
+    expect(d.qr).toBe("data:image/png;base64,NOVO");
+    expect(evo.connect).toHaveBeenCalledTimes(1);
+    expect(evo.connect.mock.calls[0][0]).toBe("inst-1");
+  });
+
+  it("sem a tela pedir, o servidor não é chamado (o painel e a primeira carga não buscam código)", async () => {
+    evo.state.mockResolvedValue(esperando);
+    const d = await (await rodar(GET(consulta()))).json();
+    expect(d.status).toBe("AGUARDANDO_QR");
+    expect(d.qr).toBeNull();
+    expect(evo.connect).not.toHaveBeenCalled();
+  });
+
+  it("conexão FECHADA nunca busca código: buscar ali abriria uma tentativa nova sozinho", async () => {
+    evo.state.mockResolvedValue({ ok: true, status: 200, data: { instance: { state: "close" } } });
+    const d = await (await rodar(GET(consulta(true)))).json();
+    expect(d.status).toBe("DESCONECTADO");
+    expect(d.qr).toBeNull();
+    expect(evo.connect).not.toHaveBeenCalled();
+  });
+
+  it("já conectada não busca código; e a busca que falha ou vem sem imagem não derruba a consulta", async () => {
+    evo.sonda.mockResolvedValue({ ok: true, status: 201, data: {} });
+    const aberta = await (await rodar(GET(consulta(true)))).json();
+    expect(aberta.status).toBe("CONECTADO");
+    expect(evo.connect).not.toHaveBeenCalled();
+
+    evo.state.mockResolvedValue(esperando);
+    evo.connect.mockRejectedValueOnce(new Error("caiu"));
+    expect((await (await rodar(GET(consulta(true)))).json()).qr).toBeNull();
+    evo.connect.mockResolvedValueOnce({ ok: true, status: 200, data: { code: "sem-imagem" } });
+    const semImagem = await (await rodar(GET(consulta(true)))).json();
+    expect(semImagem.qr).toBeNull();
+    expect(semImagem.status).toBe("AGUARDANDO_QR");
   });
 });

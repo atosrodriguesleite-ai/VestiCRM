@@ -8,6 +8,7 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { isAdmin } from "@/lib/scope";
 import {
   evolutionEnv,
+  evoConnect,
   evoState,
   evoVersao,
   jidToPhone,
@@ -18,9 +19,17 @@ import {
   WA_GAP_MAX_SEG,
 } from "@/lib/comm/evolution";
 
-/** Estado da conexão do WhatsApp sem API oficial (para a tela Comunicação). */
-export async function GET() {
+/** Teto da busca do QR Code de agora: é consulta de tela, a cada poucos segundos. */
+const MS_BUSCA_DO_QR = 8_000;
+
+/**
+ * Estado da conexão do WhatsApp sem API oficial (para a tela Comunicação).
+ * Com `?qr=1` (a tela, enquanto o QR está nela) devolve também o QR Code de
+ * AGORA — o WhatsApp troca o código a cada ~20 s (RN-110).
+ */
+export async function GET(req: Request) {
   try {
+    const querQr = new URL(req.url).searchParams.get("qr") === "1";
     const user = await requireUser();
     if (!isAdmin(user)) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
@@ -43,6 +52,8 @@ export async function GET() {
     let servidorVersao: string | null = null;
     // RN-105: o servidor diz "open", mas a sonda bateu na conexão fechada
     let sessaoCaida = false;
+    // RN-110: o QR Code de agora, só para a tela que está esperando a leitura
+    let qr: string | null = null;
     if (settings?.evolutionInstance && evolutionEnv().configured) {
       const [st, versao] = await Promise.all([evoState(settings.evolutionInstance), evoVersao()]);
       servidorVersao = versao;
@@ -108,8 +119,18 @@ export async function GET() {
           emDia: assinatura === "reassinada" || assinatura === "em-dia",
           erro: assinatura === "falhou" ? motivoDaUltimaFalha(settings.evolutionInstance) : null,
         };
-      } else if (state === "connecting") status = "AGUARDANDO_QR";
-      else if (state === "close") status = "DESCONECTADO";
+      } else if (state === "connecting") {
+        status = "AGUARDANDO_QR";
+        // RN-110: SÓ com o servidor esperando a leitura ("connecting") — ali a
+        // chamada devolve o código que ele já tem, sem iniciar nada (conferido
+        // no código do Evolution). Com a conexão fechada ela ABRIRIA uma
+        // tentativa nova: a tela aberta e esquecida manteria um pareamento
+        // vivo para sempre. Quem abre tentativa é o clique em Conectar.
+        if (querQr) {
+          const r = await evoConnect(settings.evolutionInstance, MS_BUSCA_DO_QR).catch(() => null);
+          if (r?.ok && typeof r.data?.base64 === "string" && r.data.base64) qr = r.data.base64;
+        }
+      } else if (state === "close") status = "DESCONECTADO";
       // auto-correção: conectado de verdade ⇒ provedor ativo é o Evolution.
       // A sessão caída por trás de um "open" NÃO troca o provedor: trocar
       // para o simulado faria os envios "darem certo" sem sair (RN-105)
@@ -145,6 +166,7 @@ export async function GET() {
       eventos,
       servidorVersao,
       sessaoCaida,
+      qr,
       activeProvider: settings?.activeProvider ?? "MOCK",
       limites: {
         janelaHoras: WA_JANELA_HORAS,

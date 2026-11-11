@@ -4,8 +4,10 @@
 
 /**
  * Conexão do WhatsApp da loja SEM API oficial (estilo WhatsApp Web):
- * termo de aceite obrigatório → QR Code → conectado. O estado é consultado
- * a cada poucos segundos enquanto o QR está na tela.
+ * termo de aceite obrigatório → QR Code → conectado. Enquanto o QR está na
+ * tela, o estado E O CÓDIGO são consultados a cada poucos segundos: o
+ * WhatsApp troca o código a cada ~20 s, e a tela mostrava para sempre o do
+ * clique (RN-110).
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -20,6 +22,7 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui";
 import { CONFIRMACAO_DO_REINICIO, pedirReinicio, type ResultadoNaTela } from "@/lib/reinicio-da-conexao-tela";
+import { FRASE_DO_QR_VENCIDO, MS_ENTRE_CONSULTAS_DO_QR, passoDaTentativa } from "@/lib/qr-da-conexao";
 
 type Estado = {
   serverConfigured: boolean;
@@ -32,6 +35,8 @@ type Estado = {
   servidorVersao?: string | null;
   // RN-105: o servidor diz "conectado", mas a conexão com o celular caiu
   sessaoCaida?: boolean;
+  // RN-110: o QR Code de agora (só quando a tela pede, esperando a leitura)
+  qr?: string | null;
   limites: { janelaHoras: number; ritmoMinSeg: number; ritmoMaxSeg: number; enviadosHoje: number };
 };
 
@@ -43,14 +48,38 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
   const [erro, setErro] = useState("");
   // RN-105: o resultado do "Reiniciar conexão", dito na tela
   const [reinicio, setReinicio] = useState<ResultadoNaTela | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // RN-110: a tentativa venceu (o servidor fechou sem a conexão completar)
+  const [venceu, setVenceu] = useState(false);
+  // quantas vezes o código já foi trocado nesta tentativa (a tela diz que ele se renova)
+  const [trocas, setTrocas] = useState(0);
+  // a tentativa em curso, fora do estado: a consulta lê o valor de AGORA
+  const tentativa = useRef<{ qr: string; fechadas: number } | null>(null);
+  // uma consulta por vez: a resposta pode demorar mais que o intervalo
+  const emVoo = useRef(false);
 
   const carregar = useCallback(async () => {
-    const res = await fetch("/api/whatsapp/evolution");
+    const esperando = tentativa.current != null;
+    const res = await fetch(esperando ? "/api/whatsapp/evolution?qr=1" : "/api/whatsapp/evolution");
     if (res.ok) {
       const d: Estado = await res.json();
       setEstado(d);
-      if (d.status === "CONECTADO") setQr(null);
+      const atual = tentativa.current;
+      if (!atual) {
+        if (d.status === "CONECTADO") setQr(null);
+        return d;
+      }
+      const passo = passoDaTentativa(atual, d);
+      if (passo.fim) {
+        tentativa.current = null;
+        setQr(null);
+        setVenceu(passo.fim === "venceu");
+      } else {
+        tentativa.current = passo.tentativa;
+        if (passo.trocou) {
+          setQr(passo.tentativa.qr);
+          setTrocas((n) => n + 1);
+        }
+      }
       return d;
     }
     return null;
@@ -60,17 +89,31 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
     carregar();
   }, [carregar]);
 
-  // enquanto o QR está na tela, consulta o estado a cada 4s
+  // enquanto o QR está na tela, consulta o estado e o CÓDIGO DE AGORA
+  const esperandoLeitura = qr != null;
   useEffect(() => {
-    if (!qr) {
-      if (pollRef.current) clearInterval(pollRef.current);
-      return;
-    }
-    pollRef.current = setInterval(carregar, 4000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [qr, carregar]);
+    if (!esperandoLeitura) return;
+    const id = setInterval(async () => {
+      if (emVoo.current) return;
+      emVoo.current = true;
+      try {
+        await carregar();
+      } catch {
+        // sem internet por um instante: a próxima consulta tenta de novo
+      } finally {
+        emVoo.current = false;
+      }
+    }, MS_ENTRE_CONSULTAS_DO_QR);
+    return () => clearInterval(id);
+  }, [esperandoLeitura, carregar]);
+
+  /** Põe um QR Code na tela e começa a acompanhar a tentativa. */
+  function mostrarQr(codigo: string) {
+    tentativa.current = { qr: codigo, fechadas: 0 };
+    setVenceu(false);
+    setTrocas(0);
+    setQr(codigo);
+  }
 
   async function aceitarTermo() {
     setBusy(true);
@@ -95,7 +138,7 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
     });
     const d = await res.json().catch(() => ({}));
     setBusy(false);
-    if (res.ok && d.qr) setQr(d.qr);
+    if (res.ok && d.qr) mostrarQr(d.qr);
     else if (d.perguntarRecriar && !recriar) {
       // RN-105: sem prova de que a sessão está viva ou morta, quem decide
       // derrubá-la é a pessoa — avisada de que vai pedir o QR Code de novo
@@ -129,6 +172,7 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
       return;
     setBusy(true);
     await fetch("/api/whatsapp/evolution/disconnect", { method: "POST" });
+    tentativa.current = null;
     setQr(null);
     setBusy(false);
     carregar();
@@ -284,14 +328,21 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
                 <li>2. Toque em <b>⋮ → Dispositivos conectados</b></li>
                 <li>3. Toque em <b>Conectar dispositivo</b></li>
                 <li>4. Aponte a câmera para este código</li>
-                <li className="text-xs text-gray-400 pt-1">
+                <li className="text-xs text-gray-400 pt-1" role="status">
                   <Loader2 className="inline size-3 animate-spin mr-1" />
-                  Aguardando leitura… a tela atualiza sozinha.
+                  Aguardando leitura… o código se renova sozinho a cada poucos segundos
+                  {trocas > 0 ? ` (renovado ${trocas}×)` : ""}. Leia sempre o que está na tela agora.
                 </li>
               </ol>
             </div>
           ) : (
             canEdit && (
+              <>
+              {venceu && (
+                <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800" role="alert">
+                  {FRASE_DO_QR_VENCIDO}
+                </p>
+              )}
               <button
                 onClick={() => conectar()}
                 disabled={busy}
@@ -302,8 +353,9 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
                 ) : (
                   <QrCode className="size-4" />
                 )}
-                {busy ? "Gerando QR Code…" : "Conectar WhatsApp (QR Code)"}
+                {busy ? "Gerando QR Code…" : venceu ? "Gerar código novo" : "Conectar WhatsApp (QR Code)"}
               </button>
+              </>
             )
           )}
           <p className="text-[11px] text-gray-400 mt-3 leading-snug">
