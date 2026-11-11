@@ -78,7 +78,8 @@ import { GET } from "@/app/api/whatsapp/evolution/route";
 import { POST as CONECTAR } from "@/app/api/whatsapp/evolution/connect/route";
 
 /** A consulta da tela; com `qr`, a tela está esperando a leitura (RN-110). */
-const consulta = (qr = false) => new Request(`http://x/api/whatsapp/evolution${qr ? "?qr=1" : ""}`);
+const consulta = (qr = false, conferir = false) =>
+  new Request(`http://x/api/whatsapp/evolution${qr ? "?qr=1" : ""}${qr && conferir ? "&conferir=1" : ""}`);
 
 const pedido = (corpo?: unknown) =>
   new Request("http://x/api/whatsapp/evolution/connect", {
@@ -278,10 +279,12 @@ describe("o QR Code de agora (GET ?qr=1): só com o servidor esperando a leitura
 
   it("esperando a leitura e a tela pediu → devolve o código que o servidor tem AGORA", async () => {
     evo.state.mockResolvedValue(esperando);
-    evo.connect.mockResolvedValue({ ok: true, status: 200, data: { base64: "data:image/png;base64,NOVO" } });
+    evo.connect.mockResolvedValue({ ok: true, status: 200, data: { base64: "data:image/png;base64,NOVO", count: 3 } });
     const d = await (await rodar(GET(consulta(true)))).json();
     expect(d.status).toBe("AGUARDANDO_QR");
     expect(d.qr).toBe("data:image/png;base64,NOVO");
+    expect(d.qrNumero).toBe(3);
+    expect(d.aberta).toBe(false);
     expect(evo.connect).toHaveBeenCalledTimes(1);
     expect(evo.connect.mock.calls[0][0]).toBe("inst-1");
   });
@@ -302,11 +305,42 @@ describe("o QR Code de agora (GET ?qr=1): só com o servidor esperando a leitura
     expect(evo.connect).not.toHaveBeenCalled();
   });
 
-  it("já conectada não busca código; e a busca que falha ou vem sem imagem não derruba a consulta", async () => {
-    evo.sonda.mockResolvedValue({ ok: true, status: 201, data: {} });
-    const aberta = await (await rodar(GET(consulta(true)))).json();
-    expect(aberta.status).toBe("CONECTADO");
+  it("o servidor ABRIU: a consulta da tentativa só diz 'aberta' — não sonda, não grava, não diz conectado", async () => {
+    // o aviso do servidor pode já ter gravado "conectado": para a tela, conectado é o CONFERIDO
+    estado.settings = { ...estado.settings, evolutionStatus: "CONECTADO" };
+    const d = await (await rodar(GET(consulta(true)))).json();
+    expect(d.aberta).toBe(true);
+    expect(d.status).toBe("AGUARDANDO_QR");
+    expect(evo.sonda).not.toHaveBeenCalled();
     expect(evo.connect).not.toHaveBeenCalled();
+    expect(estado.updates).toHaveLength(0);
+    expect(estado.updateManys).toHaveLength(0);
+  });
+
+  it("a conferência (conferir=1) roda a sonda: viva → CONECTADO gravado; morta → sessaoCaida", async () => {
+    evo.sonda.mockResolvedValue({ ok: true, status: 201, data: {} });
+    const viva = await (await rodar(GET(consulta(true, true)))).json();
+    expect(viva.status).toBe("CONECTADO");
+    expect(viva.aberta).toBe(false);
+    expect(evo.sonda).toHaveBeenCalled();
+    expect(estado.updates.at(-1)?.data.evolutionStatus).toBe("CONECTADO");
+
+    evo.sonda.mockReset();
+    evo.sonda.mockResolvedValue({ ok: false, status: 400, data: CONEXAO_FECHADA });
+    const morta = await (await rodar(GET(consulta(true, true)))).json();
+    expect(morta.status).toBe("DESCONECTADO");
+    expect(morta.sessaoCaida).toBe(true);
+    expect(morta.aberta).toBe(false);
+  });
+
+  it("sem a tela da tentativa (sem qr=1), o 'open' segue direto para a conferência, como sempre", async () => {
+    evo.sonda.mockResolvedValue({ ok: true, status: 201, data: {} });
+    const d = await (await rodar(GET(consulta()))).json();
+    expect(d.status).toBe("CONECTADO");
+    expect(d.aberta).toBe(false);
+  });
+
+  it("a busca do código que falha ou vem sem imagem não derruba a consulta", async () => {
 
     evo.state.mockResolvedValue(esperando);
     evo.connect.mockRejectedValueOnce(new Error("caiu"));

@@ -191,7 +191,11 @@ export async function POST(req: Request) {
       data: { evolutionStatus: "AGUARDANDO_QR" },
     });
 
-    return NextResponse.json({ qr: qr.data.base64 });
+    return NextResponse.json({
+      qr: qr.data.base64,
+      // RN-110: qual código da tentativa é este (o servidor conta)
+      qrNumero: typeof qr.data.count === "number" ? qr.data.count : null,
+    });
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });

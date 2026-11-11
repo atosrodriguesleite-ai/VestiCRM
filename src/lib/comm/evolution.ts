@@ -276,7 +276,13 @@ export async function evoSetWebhook(instance: string, webhookToken: string) {
 
 /** Pede o QR Code de conexão (base64) da instância. */
 export async function evoConnect(instance: string, timeoutMs?: number) {
-  return evo<{ base64?: string; code?: string }>("GET", `/instance/connect/${instance}`, undefined, timeoutMs);
+  // `count`: qual código da tentativa é este — o servidor conta (1, 2, 3…)
+  return evo<{ base64?: string; code?: string; count?: number }>(
+    "GET",
+    `/instance/connect/${instance}`,
+    undefined,
+    timeoutMs
+  );
 }
 
 /**

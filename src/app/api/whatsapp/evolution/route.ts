@@ -25,11 +25,16 @@ const MS_BUSCA_DO_QR = 8_000;
 /**
  * Estado da conexão do WhatsApp sem API oficial (para a tela Comunicação).
  * Com `?qr=1` (a tela, enquanto o QR está nela) devolve também o QR Code de
- * AGORA — o WhatsApp troca o código a cada ~20 s (RN-110).
+ * AGORA — o WhatsApp troca o código a cada ~20 s (RN-110). Com a conexão
+ * recém-ABERTA, essa consulta só DIZ que abriu (`aberta`): a conferência pela
+ * sonda vem na consulta seguinte, que a tela pede com `conferir=1` — assim o
+ * andamento na tela mostra os dois passos de verdade, um de cada vez.
  */
 export async function GET(req: Request) {
   try {
-    const querQr = new URL(req.url).searchParams.get("qr") === "1";
+    const busca = new URL(req.url).searchParams;
+    const querQr = busca.get("qr") === "1";
+    const conferir = busca.get("conferir") === "1";
     const user = await requireUser();
     if (!isAdmin(user)) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
@@ -54,11 +59,21 @@ export async function GET(req: Request) {
     let sessaoCaida = false;
     // RN-110: o QR Code de agora, só para a tela que está esperando a leitura
     let qr: string | null = null;
+    let qrNumero: number | null = null;
+    // RN-110: o servidor abriu a conexão e a conferência ainda não foi pedida
+    let aberta = false;
     if (settings?.evolutionInstance && evolutionEnv().configured) {
       const [st, versao] = await Promise.all([evoState(settings.evolutionInstance), evoVersao()]);
       servidorVersao = versao;
       const state = st.data?.instance?.state;
-      if (state === "open") {
+      // RN-110: a tela da tentativa vê a abertura ANTES da conferência. Esta
+      // consulta não sonda, não grava e não muda o estado: só diz "abriu". O
+      // status segue "aguardando" na resposta mesmo que o aviso do servidor já
+      // tenha gravado "conectado" — conectado, para a tela, é o conferido.
+      aberta = querQr && !conferir && state === "open";
+      if (aberta) {
+        status = "AGUARDANDO_QR";
+      } else if (state === "open") {
         status = "CONECTADO";
         phone = jidToPhone(st.data?.instance?.ownerJid ?? "") ?? phone;
         // "open" na leitura não é prova (RN-105): o servidor guarda o estado
@@ -107,7 +122,9 @@ export async function GET(req: Request) {
           });
         }
       }
-      if (state === "open" && !sessaoCaida) {
+      if (aberta) {
+        // nada a fazer aqui: avisos, provedor e gravação são da conferência
+      } else if (state === "open" && !sessaoCaida) {
         // auto-cura: garante que a instância escuta todos os eventos atuais
         // (ex.: "cliente apagou", "editou") mesmo tendo sido criada antes —
         // best-effort, SEMPRE (a tela de conexão é o lugar de conferir de
@@ -128,7 +145,11 @@ export async function GET(req: Request) {
         // vivo para sempre. Quem abre tentativa é o clique em Conectar.
         if (querQr) {
           const r = await evoConnect(settings.evolutionInstance, MS_BUSCA_DO_QR).catch(() => null);
-          if (r?.ok && typeof r.data?.base64 === "string" && r.data.base64) qr = r.data.base64;
+          if (r?.ok && typeof r.data?.base64 === "string" && r.data.base64) {
+            qr = r.data.base64;
+            // o servidor conta os códigos da tentativa (1, 2, 3…)
+            qrNumero = typeof r.data.count === "number" ? r.data.count : null;
+          }
         }
       } else if (state === "close") status = "DESCONECTADO";
       // auto-correção: conectado de verdade ⇒ provedor ativo é o Evolution.
@@ -141,9 +162,10 @@ export async function GET(req: Request) {
             ? "MOCK"
             : settings.activeProvider;
       if (
-        status !== settings.evolutionStatus ||
-        phone !== settings.evolutionPhone ||
-        provider !== settings.activeProvider
+        !aberta &&
+        (status !== settings.evolutionStatus ||
+          phone !== settings.evolutionPhone ||
+          provider !== settings.activeProvider)
       ) {
         await db.commSettings.update({
           where: { companyId: user.companyId },
@@ -167,6 +189,8 @@ export async function GET(req: Request) {
       servidorVersao,
       sessaoCaida,
       qr,
+      qrNumero,
+      aberta,
       activeProvider: settings?.activeProvider ?? "MOCK",
       limites: {
         janelaHoras: WA_JANELA_HORAS,

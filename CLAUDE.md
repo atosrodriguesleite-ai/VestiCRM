@@ -3368,8 +3368,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   confirmado em relatos de usuários e nas notas de versão do Evolution, não na
   definição do Baileys — por isso o leitor aceita os dois nomes conhecidos
   em vez de apostar num só.
-- **RN-110 · O QR CODE DA CONEXÃO SE RENOVA NA TELA, E A TENTATIVA QUE
-  VENCEU É DITA** (`lib/qr-da-conexao.ts` pura, `GET /api/whatsapp/evolution?qr=1`,
+- **RN-110 · O QR CODE DA CONEXÃO SE RENOVA NA TELA, O ANDAMENTO É REAL, E A
+  TENTATIVA QUE VENCEU É DITA** (`lib/qr-da-conexao.ts` pura, `GET /api/whatsapp/evolution?qr=1`,
   `comunicacao/whatsapp-connect.tsx`, 11/11/2026): relato do dono com o print
   — *"estou tentando reconectar o WhatsApp, mas está demorando muito"* e, depois
   de recarregar, *"ele garra nessa tela"*. O WhatsApp **troca o QR Code
@@ -3380,20 +3380,46 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   lia um código morto; e como o Conectar, com a tentativa já aberta, devolve o
   código que o servidor tem NAQUELE instante, recarregar e clicar de novo
   entregava um código com poucos segundos de vida. Agora: (1) **a consulta da
-  tela pede o código de AGORA** (`?qr=1`, a cada 3 s, uma por vez) e a imagem é
-  trocada quando muda — a tela diz "o código se renova sozinho (renovado N×)";
+  tela pede o código de AGORA** (`?qr=1`, a cada 2 s, uma por vez) e a imagem é
+  trocada quando muda — a tela diz "o código se renova sozinho (este é o Nº)",
+  com o número que o PRÓPRIO servidor conta;
   (2) **a porta só busca código com o servidor ESPERANDO a leitura**
   ("connecting": ali a chamada devolve o que ele já tem, sem iniciar nada —
   conferido no código do Evolution); com a conexão **fechada nunca busca** —
   buscar ali ABRIRIA uma tentativa nova, e a aba esquecida manteria um
   pareamento vivo para sempre; quem abre tentativa é o clique; sem `?qr=1`
   (primeira carga) o servidor nem é chamado, e a busca que falha não derruba a
-  consulta; (3) **a tentativa que venceu é DITA** (`passoDaTentativa`): quatro
-  consultas seguidas com a conexão fechada tiram o código da tela, param a
+  consulta; (3) **a tentativa que venceu é DITA** (`passoDaTentativa`): seis
+  consultas seguidas com a conexão fechada (12 s) tiram o código da tela, param a
   consulta e mostram a frase com o botão "Gerar código novo" — uma fechada só
   não encerra, porque logo depois da leitura o WhatsApp fecha e reabre a
   conexão e entre um ciclo de códigos e outro o servidor passa um instante
-  fechado. **Limites ditos**: a tela não sabe se o CELULAR recusou a leitura
+  fechado; (4) **O ANDAMENTO NA TELA É REAL** (pedido do dono no mesmo dia:
+  *"algo visual que eu saiba que está carregando e chegando no fim — mas tem
+  que ser real"*; `passosDoAndamento`/`fracaoDoAndamento`): três passos, e
+  cada um só acende com o sinal que o servidor deu — **código gerado** (o
+  servidor devolveu o QR), **celular leu o código** (o servidor passou a dizer
+  "conexão aberta": ela só abre depois que o celular lê e o WhatsApp aceita) e
+  **conexão conferida** (a sonda da RN-105 provou a sessão viva). A barra
+  enche por PASSO FEITO, nunca pelo relógio (o "há m:ss" ao lado só diz há
+  quanto tempo a tentativa está aberta; dez consultas sem novidade deixam a
+  barra onde está — o teste prende). Para os dois últimos passos aparecerem um
+  de cada vez, **a consulta da tentativa que encontra a conexão recém-aberta só
+  DIZ que abriu** (`aberta`: não sonda, não grava, e responde "aguardando"
+  mesmo que o aviso do servidor já tenha gravado "conectado" — para a tela,
+  conectado é o CONFERIDO), e a tela pede a conferência NA HORA
+  (`conferir=1`, `enderecoDaConsulta`), que é o caminho de sempre da sonda.
+  Aberta, o código sai da tela e entra "conferindo se ela está viva"; conferida,
+  a barra fica cheia com "WhatsApp conectado"; **abriu e a sonda achou morta →
+  o andamento some e a tela diz que caiu** (nunca barra cheia); aberta que
+  volta a fechar retorna ao passo de leitura. A loja que já estava conectada ao
+  abrir a tela não ganha o andamento (ele é só da tentativa daquela tela), e a
+  consulta sem `qr=1` segue direto para a conferência, como sempre. Provado no
+  navegador contra um servidor Evolution de mentira (1 de 3 → o código gira
+  sozinho → 2 de 3 ao abrir → 3 de 3 ao conferir, no computador e no celular).
+  **Limites ditos**: não existe sinal do servidor para "o celular está
+  apontando a câmera" — entre a leitura e a abertura (poucos segundos) a tela
+  segue no passo 2; a tela não sabe se o CELULAR recusou a leitura
   (o aviso aparece só no aparelho); e se o servidor Evolution estiver com a
   versão do WhatsApp desatualizada, o celular lê o código e responde "não foi
   possível conectar" — isso é atualização do servidor na Hostinger, não tela.

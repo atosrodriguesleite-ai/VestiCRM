@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
+  Circle,
   Loader2,
   MessageCircle,
   Power,
@@ -22,7 +23,17 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui";
 import { CONFIRMACAO_DO_REINICIO, pedirReinicio, type ResultadoNaTela } from "@/lib/reinicio-da-conexao-tela";
-import { FRASE_DO_QR_VENCIDO, MS_ENTRE_CONSULTAS_DO_QR, passoDaTentativa } from "@/lib/qr-da-conexao";
+import {
+  enderecoDaConsulta,
+  fracaoDoAndamento,
+  FRASE_DO_QR_VENCIDO,
+  MS_ENTRE_CONSULTAS_DO_QR,
+  novaTentativa,
+  passoDaTentativa,
+  passosDoAndamento,
+  type FaseDaConexao,
+  type TentativaDeConexao,
+} from "@/lib/qr-da-conexao";
 
 type Estado = {
   serverConfigured: boolean;
@@ -37,62 +48,67 @@ type Estado = {
   sessaoCaida?: boolean;
   // RN-110: o QR Code de agora (só quando a tela pede, esperando a leitura)
   qr?: string | null;
+  qrNumero?: number | null;
+  // RN-110: o servidor abriu a conexão; a conferência vem na consulta seguinte
+  aberta?: boolean;
   limites: { janelaHoras: number; ritmoMinSeg: number; ritmoMaxSeg: number; enviadosHoje: number };
 };
 
 export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
   const [estado, setEstado] = useState<Estado | null>(null);
   const [aceito, setAceito] = useState(false);
-  const [qr, setQr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState("");
   // RN-105: o resultado do "Reiniciar conexão", dito na tela
   const [reinicio, setReinicio] = useState<ResultadoNaTela | null>(null);
-  // RN-110: a tentativa venceu (o servidor fechou sem a conexão completar)
+  // RN-110: a tentativa em curso (o código na tela e em que passo ela está).
+  // Mora no estado (para desenhar) e num ref (a consulta lê o valor de AGORA)
+  const [tentativa, setTentativaNaTela] = useState<TentativaDeConexao | null>(null);
+  const tentativaRef = useRef<TentativaDeConexao | null>(null);
+  // a tentativa venceu (o servidor fechou sem a conexão completar)
   const [venceu, setVenceu] = useState(false);
-  // quantas vezes o código já foi trocado nesta tentativa (a tela diz que ele se renova)
-  const [trocas, setTrocas] = useState(0);
-  // a tentativa em curso, fora do estado: a consulta lê o valor de AGORA
-  const tentativa = useRef<{ qr: string; fechadas: number } | null>(null);
+  // a tentativa DESTA tela terminou conectada: o andamento fica cheio na tela
+  const [acabouDeConectar, setAcabouDeConectar] = useState(false);
+  // quando a tentativa começou (para o relógio "há m:ss")
+  const [comecouEm, setComecouEm] = useState<number | null>(null);
   // uma consulta por vez: a resposta pode demorar mais que o intervalo
   const emVoo = useRef(false);
 
-  const carregar = useCallback(async () => {
-    const esperando = tentativa.current != null;
-    const res = await fetch(esperando ? "/api/whatsapp/evolution?qr=1" : "/api/whatsapp/evolution");
-    if (res.ok) {
-      const d: Estado = await res.json();
-      setEstado(d);
-      const atual = tentativa.current;
-      if (!atual) {
-        if (d.status === "CONECTADO") setQr(null);
-        return d;
-      }
-      const passo = passoDaTentativa(atual, d);
-      if (passo.fim) {
-        tentativa.current = null;
-        setQr(null);
-        setVenceu(passo.fim === "venceu");
-      } else {
-        tentativa.current = passo.tentativa;
-        if (passo.trocou) {
-          setQr(passo.tentativa.qr);
-          setTrocas((n) => n + 1);
-        }
-      }
+  const guardarTentativa = useCallback((t: TentativaDeConexao | null) => {
+    tentativaRef.current = t;
+    setTentativaNaTela(t);
+  }, []);
+
+  const carregar = useCallback(async (): Promise<Estado | null> => {
+    const res = await fetch(enderecoDaConsulta(tentativaRef.current));
+    if (!res.ok) return null;
+    const d: Estado = await res.json();
+    setEstado(d);
+    const atual = tentativaRef.current;
+    if (!atual) return d;
+    const passo = passoDaTentativa(atual, d);
+    if (passo.fim) {
+      guardarTentativa(null);
+      setVenceu(passo.fim === "venceu");
+      setAcabouDeConectar(passo.fim === "conectou");
       return d;
     }
-    return null;
-  }, []);
+    const abriuAgora = atual.etapa === "lendo" && passo.tentativa.etapa === "aberta";
+    guardarTentativa(passo.tentativa);
+    // o servidor acabou de dizer "abriu": a conferência é pedida NA HORA, sem
+    // esperar a próxima batida — o passo seguinte não fica parado à toa
+    if (abriuAgora) return carregar();
+    return d;
+  }, [guardarTentativa]);
 
   useEffect(() => {
     carregar();
   }, [carregar]);
 
-  // enquanto o QR está na tela, consulta o estado e o CÓDIGO DE AGORA
-  const esperandoLeitura = qr != null;
+  // enquanto há tentativa, consulta o estado e o CÓDIGO DE AGORA
+  const emTentativa = tentativa != null;
   useEffect(() => {
-    if (!esperandoLeitura) return;
+    if (!emTentativa) return;
     const id = setInterval(async () => {
       if (emVoo.current) return;
       emVoo.current = true;
@@ -105,14 +121,14 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
       }
     }, MS_ENTRE_CONSULTAS_DO_QR);
     return () => clearInterval(id);
-  }, [esperandoLeitura, carregar]);
+  }, [emTentativa, carregar]);
 
   /** Põe um QR Code na tela e começa a acompanhar a tentativa. */
-  function mostrarQr(codigo: string) {
-    tentativa.current = { qr: codigo, fechadas: 0 };
+  function mostrarQr(codigo: string, numero?: number | null) {
+    guardarTentativa(novaTentativa(codigo, numero));
     setVenceu(false);
-    setTrocas(0);
-    setQr(codigo);
+    setAcabouDeConectar(false);
+    setComecouEm(Date.now());
   }
 
   async function aceitarTermo() {
@@ -138,7 +154,7 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
     });
     const d = await res.json().catch(() => ({}));
     setBusy(false);
-    if (res.ok && d.qr) mostrarQr(d.qr);
+    if (res.ok && d.qr) mostrarQr(d.qr, d.qrNumero);
     else if (d.perguntarRecriar && !recriar) {
       // RN-105: sem prova de que a sessão está viva ou morta, quem decide
       // derrubá-la é a pessoa — avisada de que vai pedir o QR Code de novo
@@ -172,8 +188,8 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
       return;
     setBusy(true);
     await fetch("/api/whatsapp/evolution/disconnect", { method: "POST" });
-    tentativa.current = null;
-    setQr(null);
+    guardarTentativa(null);
+    setAcabouDeConectar(false);
     setBusy(false);
     carregar();
   }
@@ -217,6 +233,9 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
         >
           {reinicio.mensagem}
         </p>
+      )}
+      {acabouDeConectar && estado.status === "CONECTADO" && (
+        <AndamentoDaConexao fase="conectou" comecouEm={null} />
       )}
       {estado.sessaoCaida && (
         <p className="mb-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700" role="alert">
@@ -316,24 +335,35 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
         </div>
       ) : (
         <div>
-          {qr ? (
-            <div className="flex flex-col sm:flex-row items-center gap-4">
-              <img
-                src={qr}
-                alt="QR Code de conexão do WhatsApp"
-                className="size-52 rounded-xl border border-gray-200 bg-white p-2"
-              />
-              <ol className="text-sm text-gray-600 space-y-1.5">
-                <li>1. Abra o <b>WhatsApp</b> no celular da loja</li>
-                <li>2. Toque em <b>⋮ → Dispositivos conectados</b></li>
-                <li>3. Toque em <b>Conectar dispositivo</b></li>
-                <li>4. Aponte a câmera para este código</li>
-                <li className="text-xs text-gray-400 pt-1" role="status">
-                  <Loader2 className="inline size-3 animate-spin mr-1" />
-                  Aguardando leitura… o código se renova sozinho a cada poucos segundos
-                  {trocas > 0 ? ` (renovado ${trocas}×)` : ""}. Leia sempre o que está na tela agora.
-                </li>
-              </ol>
+          {tentativa ? (
+            <div>
+              <AndamentoDaConexao fase={tentativa.etapa} comecouEm={comecouEm} />
+              {tentativa.etapa === "aberta" ? (
+                <p className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800" role="status">
+                  <Loader2 className="size-4 shrink-0 animate-spin" />
+                  O celular leu o código e o WhatsApp abriu a conexão. Conferindo se ela está viva de verdade…
+                  não feche esta tela.
+                </p>
+              ) : (
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                  <img
+                    src={tentativa.qr}
+                    alt="QR Code de conexão do WhatsApp"
+                    className="size-52 rounded-xl border border-gray-200 bg-white p-2"
+                  />
+                  <ol className="text-sm text-gray-600 space-y-1.5">
+                    <li>1. Abra o <b>WhatsApp</b> no celular da loja</li>
+                    <li>2. Toque em <b>⋮ → Dispositivos conectados</b></li>
+                    <li>3. Toque em <b>Conectar dispositivo</b></li>
+                    <li>4. Aponte a câmera para este código</li>
+                    <li className="text-xs text-gray-400 pt-1" role="status">
+                      O código se renova sozinho a cada poucos segundos
+                      {tentativa.numero ? ` (este é o ${tentativa.numero}º)` : ""}. Leia sempre o que está na
+                      tela agora.
+                    </li>
+                  </ol>
+                </div>
+              )}
             </div>
           ) : (
             canEdit && (
@@ -371,3 +401,84 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
     </Card>
   );
 }
+
+/**
+ * RN-110 · O ANDAMENTO DA CONEXÃO, REAL: três passos, e cada um só acende com
+ * o sinal do servidor (código gerado → celular leu → conexão conferida). A
+ * barra enche por PASSO FEITO, nunca pelo relógio — o relógio ao lado só diz
+ * há quanto tempo a tentativa está aberta.
+ */
+function AndamentoDaConexao({ fase, comecouEm }: { fase: FaseDaConexao; comecouEm: number | null }) {
+  const passos = passosDoAndamento(fase);
+  const feitos = passos.filter((p) => p.estado === "feito").length;
+  const cheio = Math.round(fracaoDoAndamento(fase) * 100);
+  return (
+    <div className="mb-4" data-testid="andamento-da-conexao">
+      <div className="mb-2 flex items-center justify-between gap-2 text-xs text-gray-500">
+        <span className="font-semibold text-gray-700">
+          {fase === "conectou" ? "WhatsApp conectado" : `Passo ${feitos + 1} de ${passos.length}`}
+        </span>
+        {comecouEm != null && <RelogioDaTentativa desde={comecouEm} />}
+      </div>
+      <div
+        className="h-2 w-full overflow-hidden rounded-full bg-gray-100"
+        role="progressbar"
+        aria-label="Andamento da conexão do WhatsApp"
+        aria-valuemin={0}
+        aria-valuemax={passos.length}
+        aria-valuenow={feitos}
+        aria-valuetext={`${feitos} de ${passos.length} passos feitos`}
+      >
+        <div
+          className="h-full rounded-full bg-emerald-600 transition-[width] duration-500 ease-out motion-reduce:transition-none"
+          style={{ width: `${cheio}%` }}
+        />
+      </div>
+      <ol className="mt-3 flex flex-col gap-2 sm:flex-row sm:gap-4">
+        {passos.map((p) => (
+          <li
+            key={p.rotulo}
+            data-estado={p.estado}
+            className={`flex flex-1 items-center gap-2 text-sm ${
+              p.estado === "feito"
+                ? "text-emerald-700 font-medium"
+                : p.estado === "andando"
+                  ? "text-gray-800 font-medium"
+                  : "text-gray-400"
+            }`}
+          >
+            {p.estado === "feito" ? (
+              <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+            ) : p.estado === "andando" ? (
+              <Loader2 className="size-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden />
+            ) : (
+              <Circle className="size-4 shrink-0" aria-hidden />
+            )}
+            <span>
+              {p.rotulo}
+              <span className="sr-only">
+                {p.estado === "feito" ? " — feito" : p.estado === "andando" ? " — em andamento" : " — ainda não"}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+/** Há quanto tempo a tentativa está aberta. Componente próprio: só ele redesenha a cada segundo. */
+function RelogioDaTentativa({ desde }: { desde: number }) {
+  const [agora, setAgora] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setAgora(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const s = Math.max(0, Math.floor((agora - desde) / 1000));
+  return (
+    <span className="tabular-nums" aria-hidden>
+      há {Math.floor(s / 60)}:{String(s % 60).padStart(2, "0")}
+    </span>
+  );
+}
+
