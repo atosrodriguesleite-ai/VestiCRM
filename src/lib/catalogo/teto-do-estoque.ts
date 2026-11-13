@@ -119,3 +119,47 @@ export function avisoDoMinimoSemEstoque(minimo: number, disponivelDoModelo: numb
   const n = Math.max(0, disponivelDoModelo);
   return `só há ${n} ${n === 1 ? "peça disponível" : "peças disponíveis"} deste modelo — chame a loja no WhatsApp para combinar`;
 }
+
+/**
+ * AJUSTAR UM TAMANHO DENTRO DA SACOLA (13/11/2026, relato do dono com o print
+ * da Entre Linhas: a cliente pôs P, M, G e GG de uma peça e quis tirar só
+ * alguns — a sacola só tinha o "remover" da peça inteira).
+ *
+ * A quantidade nova passa pelo MESMO teto (RN-067): é o quarto caminho por
+ * onde um número entra na sacola. Zero tira o tamanho; sem tamanho nenhum, a
+ * peça sai. Os tamanhos ficam na ordem da arara (`ordem`, a do card) — o
+ * tamanho acrescentado depois não vai para o fim da linha.
+ */
+export function ajustarTamanhoNaSacola(
+  sacola: SacolaDaVitrine,
+  chave: string,
+  tamanho: string,
+  qty: number,
+  disponivel: number,
+  ordem: readonly string[]
+): SacolaDaVitrine {
+  const cabe = limitarQuantidade(qty, disponivel);
+  const antes = sacola[chave] ?? {};
+  const mexida: Record<string, number> = { ...antes, [tamanho]: cabe };
+  const tamanhos: Record<string, number> = {};
+  const nomes = [...ordem.filter((t) => t in mexida), ...Object.keys(mexida).filter((t) => !ordem.includes(t))];
+  for (const t of nomes) if (mexida[t] > 0) tamanhos[t] = mexida[t];
+  const proxima = { ...sacola };
+  if (Object.keys(tamanhos).length) proxima[chave] = tamanhos;
+  else delete proxima[chave];
+  return proxima;
+}
+
+/**
+ * O QUE CONTAR de um ajuste na sacola: UM evento pelo saldo (12 → 9 é "tirou
+ * 3"), nunca um por toque — os rankings contam eventos, e o "+Sacola" já
+ * inflou a cada ajuste uma vez (auditoria 06/08/2026). Trocar P por M com o
+ * mesmo total não é peça nova nem peça a menos: nada.
+ */
+export function eventoDoAjuste(
+  qtyAntes: number,
+  qtyDepois: number
+): { type: "cart_add" | "cart_remove"; qty: number } | null {
+  if (qtyDepois === qtyAntes) return null;
+  return { type: qtyDepois > qtyAntes ? "cart_add" : "cart_remove", qty: Math.abs(qtyDepois - qtyAntes) };
+}

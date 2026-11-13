@@ -54,7 +54,9 @@ import {
 } from "@/lib/tracking/client";
 import { lembrarOrigem } from "@/lib/catalogo/origem";
 import {
+  ajustarTamanhoNaSacola,
   avisoDoMinimoSemEstoque,
+  eventoDoAjuste,
   limitarQuantidade,
   limitarSacola,
 } from "@/lib/catalogo/teto-do-estoque";
@@ -135,6 +137,7 @@ type CardItem = {
 };
 
 type Cart = Record<string, Record<string, number>>; // key -> size -> qty
+type EventoDaVitrine = Parameters<CatalogTracker["track"]>[0];
 const sum = (o: Record<string, number>) =>
   Object.values(o).reduce((a, b) => a + b, 0);
 
@@ -738,8 +741,7 @@ export function PublicCatalog({
         }));
     });
 
-  const t = (e: Parameters<CatalogTracker["track"]>[0]) =>
-    trackerRef.current?.track(e);
+  const t = (e: EventoDaVitrine) => trackerRef.current?.track(e);
 
   useEffect(() => {
     // resolve a origem ANTES de abrir a sessão: URL manda; sem parâmetro,
@@ -753,6 +755,8 @@ export function PublicCatalog({
       setShowConsent(true);
     }
     const onHide = () => {
+      // ajuste de tamanho que ainda esperava para ser contado sai antes
+      registrarAjuste();
       if (cartRef.current.pieces > 0 && !orderSentRef.current) {
         trackerRef.current?.track({
           type: "order_abandoned",
@@ -904,6 +908,7 @@ export function PublicCatalog({
     setBagOpen(true);
   }
   function closeBag() {
+    registrarAjuste();
     t({ type: "cart_close", value: totalValue, qty: totalPieces });
     setBagOpen(false);
   }
@@ -919,8 +924,62 @@ export function PublicCatalog({
     showToast(msg);
   }
 
+  /**
+   * AJUSTAR TAMANHO DENTRO DA SACOLA (13/11/2026): a cliente tira (ou muda)
+   * um tamanho sem perder a peça inteira. A quantidade passa pelo teto de
+   * sempre (RN-067), e o registro é UM evento pelo saldo, mandado quando ela
+   * para de tocar — um por toque inflaria os rankings (auditoria 06/08/2026).
+   */
+  const [ajustando, setAjustando] = useState<string | null>(null);
+  const ajusteRef = useRef<{
+    chave: string;
+    qtyAntes: number;
+    qtyDepois: number;
+    base: Omit<EventoDaVitrine, "type" | "qty">;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
+  function registrarAjuste() {
+    const a = ajusteRef.current;
+    if (!a) return;
+    clearTimeout(a.timer);
+    ajusteRef.current = null;
+    const ev = eventoDoAjuste(a.qtyAntes, a.qtyDepois);
+    if (ev) t({ ...a.base, type: ev.type, qty: ev.qty });
+  }
+  function ajustarNaSacola(card: CardItem, size: string, qty: number) {
+    const teto = card.sizes.find((s) => s.size === size)?.disponivel ?? 0;
+    const ordem = card.sizes.map((s) => s.size);
+    const proximo = ajustarTamanhoNaSacola(cart, card.key, size, qty, teto, ordem);
+    const price = precoDe(card.product);
+    const antes = cart[card.key] ? sum(cart[card.key]) : 0;
+    const depois = proximo[card.key] ? sum(proximo[card.key]) : 0;
+    // o ajuste de OUTRA peça que ainda esperava sai antes deste começar
+    if (ajusteRef.current && ajusteRef.current.chave !== card.key) registrarAjuste();
+    const qtyAntes = ajusteRef.current?.qtyAntes ?? antes;
+    if (ajusteRef.current) clearTimeout(ajusteRef.current.timer);
+    ajusteRef.current = {
+      chave: card.key,
+      qtyAntes,
+      qtyDepois: depois,
+      base: {
+        productId: card.product.id,
+        productName: card.product.name,
+        category: card.product.category,
+        color: card.color,
+        size: Object.keys(proximo[card.key] ?? {}).join(","),
+        value: totalValue - antes * price + depois * price,
+        meta: { sacola: fotoDaSacola(proximo) },
+      },
+      timer: setTimeout(registrarAjuste, 1200),
+    };
+    setCart((prev) => ajustarTamanhoNaSacola(prev, card.key, size, qty, teto, ordem));
+    // zerou o último tamanho: a peça saiu, e o painel dela fecha junto
+    if (depois === 0) setAjustando(null);
+  }
+
   function addToBag() {
     if (!sheet) return;
+    registrarAjuste();
     const clean: Record<string, number> = {};
     for (const [size, qty] of Object.entries(draft)) {
       // segunda passada pelo teto (RN-067): o `+` já para nele, mas a sacola
@@ -963,6 +1022,7 @@ export function PublicCatalog({
 
   function sendOrder() {
     if (!whatsapp) return;
+    registrarAjuste();
     t({ type: "checkout_start", value: totalValue, qty: totalPieces });
     if (minOrderMode === "PECAS" && totalPieces < minOrder) {
       const falta = minOrder - totalPieces;
@@ -2148,7 +2208,8 @@ export function PublicCatalog({
                               <ImagemEnquadrada
                                 src={foto.url}
                                 enquadramento={foto.enquadramento ?? null}
-                                quadroClassName="w-[58px] rounded-[10px] border shrink-0"
+                                // `self-start`: a foto não estica quando o ajuste de tamanhos abre
+                                quadroClassName="w-[58px] rounded-[10px] border shrink-0 self-start"
                                 quadroStyle={{ borderColor: T.line, background: T.soft }}
                                 alt=""
                                 loading="lazy"
@@ -2176,8 +2237,20 @@ export function PublicCatalog({
                               <span className="font-bold text-sm" style={{ color: T.primary }}>
                                 {fmt(q * precoDe(c.product))}
                               </span>
+                              <span className="flex items-center gap-3.5">
+                              <button
+                                type="button"
+                                aria-expanded={ajustando === c.key}
+                                onClick={() => setAjustando((a) => (a === c.key ? null : c.key))}
+                                className="text-xs font-bold underline underline-offset-2 py-1"
+                                style={{ color: T.primary }}
+                              >
+                                {ajustando === c.key ? "pronto" : "ajustar tamanhos"}
+                              </button>
                               <button
                                 onClick={() => {
+                                  registrarAjuste();
+                                  if (ajustando === c.key) setAjustando(null);
                                   const semEsse = { ...cart };
                                   delete semEsse[c.key];
                                   t({
@@ -2196,12 +2269,33 @@ export function PublicCatalog({
                                     return next;
                                   });
                                 }}
-                                className="text-xs font-bold underline underline-offset-2"
+                                className="text-xs font-bold underline underline-offset-2 py-1"
                                 style={{ color: T.primary }}
                               >
                                 remover
                               </button>
+                              </span>
                             </div>
+                            {ajustando === c.key && (
+                              // os tamanhos da peça, um por linha, com − e +:
+                              // a MESMA linha da folha da peça (para no
+                              // estoque, RN-067). Tamanho esgotado que não
+                              // está na sacola não aparece — não há o que fazer
+                              <div className="flex flex-col gap-2 mt-2.5" data-testid="ajuste-de-tamanhos">
+                                {c.sizes
+                                  .filter((sz) => sz.disponivel > 0 || (sizes[sz.size] ?? 0) > 0)
+                                  .map((sz) => (
+                                    <LinhaDeTamanho
+                                      key={sz.size}
+                                      size={sz.size}
+                                      disponivel={sz.disponivel}
+                                      qty={sizes[sz.size] ?? 0}
+                                      cores={T}
+                                      onChange={(proxima) => ajustarNaSacola(c, sz.size, proxima)}
+                                    />
+                                  ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       );

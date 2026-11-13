@@ -1044,7 +1044,17 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   `limitarSacola`): o `+` da folha da peça, a sacola que volta do aparelho
   (localStorage) e a sacola abandonada que volta pelo link passam pelo
   estoque de HOJE — peça que zerou sai, quantidade acima do disponível
-  desce até ele; a grade abre com o que já está na sacola JÁ no teto. Vale
+  desce até ele; a grade abre com o que já está na sacola JÁ no teto. **A sacola também ajusta
+  TAMANHO POR TAMANHO** (`ajustarTamanhoNaSacola`, 13/11/2026, relato da
+  Entre Linhas: a cliente pôs P, M, G e GG de uma peça e quis tirar só
+  alguns — a sacola só tinha o "remover" da peça inteira): "ajustar
+  tamanhos" abre, na própria linha da peça, a MESMA linha de − e + da folha
+  (`LinhaDeTamanho`, o quarto caminho pela mesma régua do teto); zero tira o
+  tamanho, sem tamanho nenhum a peça sai, e o tamanho acrescentado entra na
+  ordem da arara. O registro é **UM evento pelo saldo** (`eventoDoAjuste`,
+  mandado quando ela para de tocar, ao fechar a sacola, ao enviar ou ao
+  sair): um evento por toque inflaria os rankings, e trocar P por M com o
+  mesmo total não conta nada. Vale
   no catálogo geral, no link de tabela e no catálogo de campanha (os dois
   produtores mandam o número, e o teste confere). **O servidor continua
   sendo a segunda tranca**: estoque que cai entre montar a sacola e enviar

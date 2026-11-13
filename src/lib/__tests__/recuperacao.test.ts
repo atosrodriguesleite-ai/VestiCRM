@@ -208,12 +208,12 @@ describe("auditoria 01/08: a sacola vem da FOTO, não da reconstrução", () => 
     expect(lib).toContain("sacolaDaFoto(e.meta)");
   });
 
-  it("o catálogo grava a foto nos DOIS emissores (ficha e lixinho)", () => {
+  it("o catálogo grava a foto nos TRÊS emissores (ficha, lixinho e ajuste de tamanho na sacola)", () => {
     const cat = readFileSync(
       join(process.cwd(), "src/app/catalogo/[slug]/public-catalog.tsx"),
       "utf8"
     );
-    expect(cat.split("meta: { sacola: fotoDaSacola(").length).toBe(3);
+    expect(cat.split("meta: { sacola: fotoDaSacola(").length).toBe(4);
   });
 });
 

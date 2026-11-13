@@ -3,6 +3,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  ajustarTamanhoNaSacola,
+  eventoDoAjuste,
   avisoDoMinimoSemEstoque,
   avisoDoTeto,
   disponivelNaVitrine,
@@ -131,5 +133,40 @@ describe("RN-067 · a vitrine RECEBE a quantidade e USA o teto", () => {
     const vitrine = ler("src/app/catalogo/[slug]/public-catalog.tsx");
     expect(vitrine).toContain("<LinhaDeTamanho");
     expect(vitrine.match(/limitarSacola\(/g)?.length).toBe(2);
+  });
+});
+
+describe("RN-067 · ajustar um tamanho DENTRO da sacola", () => {
+  const ordem = ["P", "M", "G", "GG"];
+  const sacola = { "p1|Militar": { P: 3, M: 3, G: 3, GG: 3 }, "p2|Preto": { M: 2 } };
+
+  it("tira só o tamanho pedido e deixa o resto da peça e as outras peças como estavam", () => {
+    const r = ajustarTamanhoNaSacola(sacola, "p1|Militar", "G", 0, 10, ordem);
+    expect(r["p1|Militar"]).toEqual({ P: 3, M: 3, GG: 3 });
+    expect(r["p2|Preto"]).toEqual({ M: 2 });
+    // não mexe na sacola de entrada
+    expect(sacola["p1|Militar"].G).toBe(3);
+  });
+
+  it("a quantidade nova para no estoque, como no + da folha da peça", () => {
+    const r = ajustarTamanhoNaSacola(sacola, "p1|Militar", "P", 8, 5, ordem);
+    expect(r["p1|Militar"].P).toBe(5);
+  });
+
+  it("zerar o último tamanho tira a peça da sacola", () => {
+    const r = ajustarTamanhoNaSacola(sacola, "p2|Preto", "M", 0, 10, ordem);
+    expect("p2|Preto" in r).toBe(false);
+    expect(r["p1|Militar"]).toEqual(sacola["p1|Militar"]);
+  });
+
+  it("tamanho acrescentado entra na ordem da arara, não no fim", () => {
+    const r = ajustarTamanhoNaSacola({ "p1|Militar": { M: 1, GG: 1 } }, "p1|Militar", "P", 2, 10, ordem);
+    expect(Object.keys(r["p1|Militar"])).toEqual(["P", "M", "GG"]);
+  });
+
+  it("o ajuste conta UM evento pelo saldo — trocar tamanho com o mesmo total não conta nada", () => {
+    expect(eventoDoAjuste(12, 9)).toEqual({ type: "cart_remove", qty: 3 });
+    expect(eventoDoAjuste(9, 11)).toEqual({ type: "cart_add", qty: 2 });
+    expect(eventoDoAjuste(12, 12)).toBeNull();
   });
 });
