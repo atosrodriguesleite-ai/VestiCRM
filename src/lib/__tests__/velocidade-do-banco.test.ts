@@ -139,3 +139,14 @@ describe("o servidor mora ao lado do banco", () => {
     expect(regiaoVercelDoBanco("sa-east-1")).toBe("gru1");
   });
 });
+
+describe("a tela guardada no navegador vale 2 minutos, pedida como for", () => {
+  it("`static` acompanha `dynamic`: o menu pede a tela inteira ao encostar, e tela pedida assim segue o prazo `static`", async () => {
+    // medido no navegador (15/11/2026): com o `static` padrão (5 min), voltar
+    // para Pedidos depois de 200s mostrava a lista guardada, sem o pedido novo
+    const { default: config } = await import("../../../next.config");
+    const prazos = config.experimental?.staleTimes;
+    expect(prazos?.dynamic).toBe(120);
+    expect(prazos?.static).toBe(prazos?.dynamic);
+  });
+});

@@ -5385,7 +5385,11 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   mostrar o esqueleto na hora — então **o esqueleto é nosso e só aparece se
   a troca demorar** (`MS_PARA_O_ESQUELETO`, 0,2 s depois do clique;
   `useTrocaDemorada`): com rede boa nada pisca, com rede fraca ele entra no
-  lugar da tela velha (que fica montada e escondida). Só no toque/clique,
+  lugar da tela velha (que fica montada e escondida). **E o prazo da tela
+  guardada segue 2 minutos**: tela pedida inteira o Next guarda pelo prazo
+  `static` (5 min por padrão) — medido, voltar para Pedidos depois de 200 s
+  mostrava a lista velha —, então `staleTimes.static` acompanha o `dynamic`
+  no `next.config.ts` (guardado em `velocidade-do-banco.test.ts`). Só no toque/clique,
   nunca ao passar o mouse (cada pedido é uma montagem de tela). **E o Funil
   desenha primeiro e confere depois**: a conciliação "todo pedido tem
   cartão" (`conciliarFunilComPedidos`) e o reparo dos marcos rodam no

@@ -9,8 +9,16 @@ const nextConfig: NextConfig = {
     // ficar lenta de novo). Toda ação de escrita chama router.refresh(),
     // que invalida esse cache — os dados continuam corretos após qualquer
     // mudança; e a inbox tem sync próprio a cada 3s, indiferente a isso.
+    //
+    // `static` TEM que acompanhar o `dynamic` (15/11/2026): o menu passou a
+    // pedir a tela INTEIRA quando o dedo encosta (`adiantar`, no app-shell),
+    // e tela pedida assim o Next guarda pelo prazo `static` — 5 minutos por
+    // padrão. Medido no navegador: voltar para Pedidos depois de 200s
+    // mostrava a lista GUARDADA, sem o pedido que entrou no meio. Com os
+    // dois iguais, vale a régua de sempre: 2 minutos.
     staleTimes: {
       dynamic: 120,
+      static: 120,
     },
   },
 };
