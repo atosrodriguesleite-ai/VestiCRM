@@ -1,3 +1,4 @@
+import { cpus } from "node:os";
 import { redirect } from "next/navigation";
 import { ReiniciarConexao } from "./reiniciar-conexao";
 import { FONTE_TELA_VERSAO_VELHA } from "@/lib/erro-da-tela";
@@ -21,6 +22,7 @@ import { isSuperAdmin } from "@/lib/scope";
 import { evolutionEnv } from "@/lib/comm/evolution";
 import { Card, PageHeader } from "@/components/ui";
 import {
+  conexoesPorServidor,
   diagnosticarVelocidade,
   lerEnderecoDoBanco,
   medirIdaAoBanco,
@@ -82,7 +84,9 @@ export default async function HealthPage() {
   const banco = lerEnderecoDoBanco(process.env.DATABASE_URL);
   const regiaoServidor = process.env.VERCEL_REGION ?? null;
   const idaMs = await medirIdaAoBanco(() => db.$queryRaw`SELECT 1`);
-  const velocidade = diagnosticarVelocidade({ regiaoServidor, banco, idaMs });
+  const nucleos = cpus().length || null;
+  const conexoes = conexoesPorServidor(banco, nucleos);
+  const velocidade = diagnosticarVelocidade({ regiaoServidor, banco, idaMs, nucleos });
 
   const [
     health,
@@ -302,7 +306,7 @@ export default async function HealthPage() {
         <p className="text-[11px] font-bold uppercase tracking-wide opacity-70">
           Velocidade das telas
         </p>
-        <div className="mt-2 grid gap-2 sm:grid-cols-3 text-sm">
+        <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-sm">
           <p>
             <span className="opacity-70">Servidor: </span>
             <b>{nomeDaRegiaoVercel(regiaoServidor)}</b>
@@ -315,6 +319,11 @@ export default async function HealthPage() {
           <p>
             <span className="opacity-70">Uma ida ao banco: </span>
             <b>{idaMs == null ? "não medida" : `${idaMs} ms`}</b>
+          </p>
+          <p>
+            <span className="opacity-70">Conexões por servidor: </span>
+            <b>{conexoes ? conexoes.total : "não identificado"}</b>
+            {conexoes && !conexoes.doEndereco && <span className="opacity-70"> · padrão</span>}
           </p>
         </div>
         <ul className="mt-2 space-y-1 text-sm">

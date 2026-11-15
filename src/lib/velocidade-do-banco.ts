@@ -64,11 +64,15 @@ export type EnderecoDoBanco = {
   pooler: boolean;
   /** `pgbouncer=true`: o Prisma embrulha CADA consulta em BEGIN/DEALLOCATE/COMMIT */
   pgbouncer: boolean;
+  /** `connection_limit` escrito no endereço; null = o padrão do Prisma (2 × núcleos + 1) */
+  limiteDeConexoes: number | null;
 };
+
+const SEM_ENDERECO: EnderecoDoBanco = { regiao: null, pooler: false, pgbouncer: false, limiteDeConexoes: null };
 
 /** Lê do endereço do banco só o que importa para a velocidade. */
 export function lerEnderecoDoBanco(url: string | undefined | null): EnderecoDoBanco {
-  if (!url) return { regiao: null, pooler: false, pgbouncer: false };
+  if (!url) return { ...SEM_ENDERECO };
   let host = "";
   let busca = new URLSearchParams();
   try {
@@ -76,8 +80,9 @@ export function lerEnderecoDoBanco(url: string | undefined | null): EnderecoDoBa
     host = u.hostname.toLowerCase();
     busca = u.searchParams;
   } catch {
-    return { regiao: null, pooler: false, pgbouncer: false };
+    return { ...SEM_ENDERECO };
   }
+  const limite = Number(busca.get("connection_limit"));
   const regiao =
     host.match(/\.((?:[a-z]{2}-)?[a-z]+-[a-z]+-\d)\.(?:aws|azure|gcp)\./)?.[1] ??
     host.match(/\b([a-z]{2}-[a-z]+-\d)\b/)?.[1] ??
@@ -86,7 +91,27 @@ export function lerEnderecoDoBanco(url: string | undefined | null): EnderecoDoBa
     regiao,
     pooler: /-pooler\./.test(host),
     pgbouncer: (busca.get("pgbouncer") ?? "").toLowerCase() === "true",
+    limiteDeConexoes: Number.isInteger(limite) && limite > 0 ? limite : null,
   };
+}
+
+/**
+ * QUANTAS CONSULTAS ANDAM JUNTAS (15/11/2026). As telas pesadas (Dashboard,
+ * Inteligência) disparam dezenas de consultas "de uma vez", mas elas só
+ * andam juntas até o número de conexões que o servidor mantém com o banco —
+ * o resto espera na fila. Sem `connection_limit` no endereço, o Prisma usa
+ * 2 × núcleos + 1: num servidor de 1 núcleo são TRÊS. Medido com o banco a
+ * 100 ms por ida: Dashboard 2,3 s com 3 conexões, 1,6 s com 10; acima de 10
+ * não muda.
+ */
+export const CONEXOES_QUE_BASTAM = 10;
+export function conexoesPorServidor(
+  banco: Pick<EnderecoDoBanco, "limiteDeConexoes">,
+  nucleos: number | null | undefined
+): { total: number; doEndereco: boolean } | null {
+  if (banco.limiteDeConexoes) return { total: banco.limiteDeConexoes, doEndereco: true };
+  if (!nucleos || nucleos < 1) return null;
+  return { total: Math.floor(nucleos) * 2 + 1, doEndereco: false };
 }
 
 export function nomeDaRegiaoAws(regiao: string | null): string {
@@ -119,6 +144,8 @@ export function diagnosticarVelocidade(entrada: {
   regiaoServidor: string | null | undefined;
   banco: EnderecoDoBanco;
   idaMs: number | null;
+  /** núcleos do servidor (`os.cpus().length`); sem ele não se fala de conexões */
+  nucleos?: number | null;
 }): Diagnostico {
   const frases: string[] = [];
   let nivel: Diagnostico["nivel"] = "OK";
@@ -152,6 +179,18 @@ export function diagnosticarVelocidade(entrada: {
     else if (entrada.idaMs >= 8) subir("ATENCAO");
     frases.push(
       `Uma ida ao banco leva ${entrada.idaMs} ms agora. Uma tela comum faz umas 20 em fila: ~${String(tela).replace(".", ",")} s só esperando o banco.`
+    );
+  }
+  // Poucas conexões só pesam com o banco LONGE: perto, a fila anda em
+  // milissegundos e mexer nisso não muda nada que a pessoa sinta.
+  const conexoes = conexoesPorServidor(entrada.banco, entrada.nucleos);
+  if (conexoes && conexoes.total < CONEXOES_QUE_BASTAM && entrada.idaMs != null && entrada.idaMs >= 8) {
+    subir("ATENCAO");
+    frases.push(
+      `Cada servidor fala com o banco por só ${conexoes.total} ${conexoes.total === 1 ? "conexão" : "conexões"}: as telas pesadas (Dashboard, Inteligência) pedem dezenas de consultas juntas e elas ficam em fila. Com ${CONEXOES_QUE_BASTAM} essas telas ficam até 40% mais rápidas — ` +
+        (entrada.banco.pooler
+          ? `é \`connection_limit=${CONEXOES_QUE_BASTAM}\` no endereço do banco.`
+          : `mas só é seguro com o endereço do POOLER do Neon (o direto tem teto de conexões).`)
     );
   }
   if (frases.length === 0) frases.push("Não deu para medir (rodando fora da Vercel ou sem banco).");

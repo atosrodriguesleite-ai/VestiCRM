@@ -5346,7 +5346,24 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   região do banco (lida do endereço — só região e bandeiras, nunca o
   segredo), o tempo de uma ida e o conselho; `pgbouncer=true` no endereço é
   alarme próprio (o Prisma faz BEGIN/DEALLOCATE/COMMIT em volta de CADA
-  consulta: 5 idas em vez de 1, medido). Do lado do código: as regras do
+  consulta: 5 idas em vez de 1, medido). **O painel diz também quantas
+  CONEXÕES cada servidor mantém com o banco** (`conexoesPorServidor`,
+  15/11/2026, segundo relato do dono, "troca de aba demora mais de 3 s"):
+  as telas pesadas disparam dezenas de consultas "juntas" (Dashboard 54,
+  Inteligência 60), mas elas só andam juntas até esse número — sem
+  `connection_limit` no endereço o Prisma usa 2 × núcleos + 1, que num
+  servidor de 1 núcleo são TRÊS. Medido a 100 ms por ida: Dashboard 2,3 s
+  com 3 conexões e 1,6 s com 10 (acima de 10 não muda); Pedidos, WhatsApp
+  e Tarefas quase não mudam (ali a demora é consulta em fila, não falta de
+  conexão). O conselho só aparece com o banco LONGE e só manda subir quando
+  o endereço é o do pooler do Neon (o direto tem teto de conexões). Mapa
+  medido no mesmo dia, rodadas em fila por tela com tudo quente: Dashboard
+  17, Inteligência 18, Funil 16, Financeiro 10, Tarefas 9, Produtos 9,
+  Pedidos 8, BI 8, Clientes 6, WhatsApp 6 — com o banco a 1–2 ms nada disso
+  se sente; a 100+ ms são os segundos que a pessoa espera. Por isso a ordem
+  é: PRIMEIRO a região (botão do dono), depois as conexões, e só então
+  encurtar filas tela a tela. O JavaScript das telas (120–180 kB
+  comprimido) não é o gargalo. Do lado do código: as regras do
   "quem chamar hoje" (`computeAutomations`) consultam juntas, e o toque no
   menu mostra NA HORA a barrinha cobre no topo (`sinal-de-navegacao.tsx`,
   `useLinkStatus`) — sem ela a tela parecia travada e a pessoa tocava de novo.
