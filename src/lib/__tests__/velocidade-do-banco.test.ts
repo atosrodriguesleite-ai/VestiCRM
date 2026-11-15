@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   conexoesPorServidor,
   diagnosticarVelocidade,
@@ -119,5 +121,21 @@ describe("conexões por servidor: quantas consultas andam juntas", () => {
       nucleos: 1,
     });
     expect(jaBasta.frases.join(" ")).not.toContain("conexões");
+  });
+});
+
+describe("o servidor mora ao lado do banco", () => {
+  /**
+   * 15/11/2026 — o painel de Saúde mostrou o servidor na Virgínia (iad1, o
+   * padrão da Vercel) e o banco em São Paulo: 113 ms por ida, e uma tela
+   * faz de 6 a 18 rodadas em fila — os "3 segundos para trocar de aba" do
+   * dono. Com os dois em São Paulo a ida cai para 1–2 ms. Quem tirar esta
+   * linha do vercel.json devolve os 3 segundos a todas as lojas; quem um
+   * dia MUDAR o banco de região muda esta linha junto (e este teste).
+   */
+  it("o vercel.json fixa as funções em gru1 (São Paulo), a região do banco", () => {
+    const cfg = JSON.parse(readFileSync(join(process.cwd(), "vercel.json"), "utf8"));
+    expect(cfg.regions).toEqual(["gru1"]);
+    expect(regiaoVercelDoBanco("sa-east-1")).toBe("gru1");
   });
 });

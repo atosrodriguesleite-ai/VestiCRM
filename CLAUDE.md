@@ -5360,7 +5360,16 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   medido no mesmo dia, rodadas em fila por tela com tudo quente: Dashboard
   17, Inteligência 18, Funil 16, Financeiro 10, Tarefas 9, Produtos 9,
   Pedidos 8, BI 8, Clientes 6, WhatsApp 6 — com o banco a 1–2 ms nada disso
-  se sente; a 100+ ms são os segundos que a pessoa espera. Por isso a ordem
+  se sente; a 100+ ms são os segundos que a pessoa espera. **A leitura da
+  produção veio no mesmo dia** (print do `/saude`): servidor na Virgínia
+  (`iad1`, o padrão da Vercel), banco em São Paulo (`sa-east-1`), **113 ms
+  por ida**, 5 conexões, endereço direto (sem pooler). **As funções foram
+  fixadas em São Paulo** (`vercel.json` → `"regions": ["gru1"]`, guardado
+  em `velocidade-do-banco.test.ts`): quem tirar a linha devolve os segundos
+  a todas as lojas, e se o banco mudar de região ela muda junto
+  (`docs/integracoes.md`). O limite de conexões NÃO foi mexido: com o banco
+  ao lado ele deixa de pesar, e sem pooler subir conexões arrisca o teto do
+  Neon. Por isso a ordem
   é: PRIMEIRO a região (botão do dono), depois as conexões, e só então
   encurtar filas tela a tela. O JavaScript das telas (120–180 kB
   comprimido) não é o gargalo. Do lado do código: as regras do

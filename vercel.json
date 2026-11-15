@@ -3,5 +3,6 @@
     { "path": "/api/cron/jueri-sync", "schedule": "0 6 * * *" },
     { "path": "/api/cron/jueri-sync", "schedule": "0 15 * * *" }
   ],
+  "regions": ["gru1"],
   "ignoreCommand": "node scripts/vercel-ignore-build.mjs"
 }

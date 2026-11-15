@@ -118,6 +118,14 @@ demonstração é bloqueado em produção.
   Público e sem segredo — só acorda o vigia, que tem trava própria. Ligar
   também o e-mail de falha do próprio cron-job.org: avisa se o site cair.
 - **Banco:** Neon (Postgres). Local: porta **5433**.
+- **Região (15/11/2026):** o banco (Neon) mora em **São Paulo**
+  (`sa-east-1`) e as funções da Vercel são fixadas ao lado dele pelo
+  `vercel.json` (`"regions": ["gru1"]`). O padrão da Vercel é a Virgínia
+  (`iad1`): assim cada ida ao banco custava 113 ms (medido no `/saude`) e
+  toda troca de tela levava segundos. **Se o banco mudar de região, esta
+  linha muda junto** — o `/saude` (cartão "Velocidade das telas") diz as
+  duas regiões e o tempo de uma ida. O endereço do banco é o DIRETO (sem
+  pooler): não subir `connection_limit` sem trocar para o pooler.
 - **Hospedagem:** Vercel. Domínios: `www.atacadopro.com` (app e site),
   `catalago.net` (catálogo público; a raiz redireciona para o site).
 - **DNS:** HostGator — registro `A` de `@` → `216.198.79.1` e `CNAME` de `www`
