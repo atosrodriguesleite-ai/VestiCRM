@@ -100,8 +100,10 @@ import {
   vaiGuardarOLugar,
 } from "@/lib/lugar-na-lista";
 import { linkParaSalvar } from "@/lib/midia-arquivo";
-import { ehPdf } from "@/lib/documento-no-chat";
+import { abreNoVisor } from "@/lib/documento-no-chat";
 import { VisorDeDocumento } from "@/components/visor-de-documento";
+import { VisorDePagina } from "@/components/visor-de-pagina";
+import { TextoComLinks } from "@/components/texto-com-links";
 import { EncaminharMensagem } from "./encaminhar";
 import { MenuDaConversa } from "./menu-da-conversa";
 import {
@@ -445,8 +447,10 @@ function MediaContent({
     // outra aba" (alvo _blank), e no aplicativo instalado isso não
     // abre aba nenhuma: o PDF tomava a tela do app sem botão de voltar, e
     // só fechando o aplicativo se saía (relato do dono, 06/08 e de novo em
-    // 21/09/2026). Detalhe em `lib/documento-no-chat.ts`.
-    if (ehPdf(m.fileName) && aoAbrirDocumento) {
+    // 21/09/2026). Detalhe em `lib/documento-no-chat.ts`. O documento SEM
+    // extensão no nome também tenta o visor: ele confere o conteúdo e, se
+    // não for PDF, diz e oferece salvar.
+    if (abreNoVisor(m.fileName) && aoAbrirDocumento) {
       const src = m.mediaUrl;
       return (
         <button
@@ -875,6 +879,11 @@ export function Inbox({
   const [fotoAberta, setFotoAberta] = useState<{ src: string; legenda: string } | null>(null);
   // PDF aberto no visor de documento (com X — nunca navega para fora)
   const [documentoAberto, setDocumentoAberto] = useState<{ src: string; nome: string } | null>(null);
+  // link do PRÓPRIO sistema tocado dentro do aplicativo instalado: abre numa
+  // janela nossa, com X (`ondeAbrir` em `lib/links-do-texto.ts`)
+  const [paginaAberta, setPaginaAberta] = useState<string | null>(null);
+  // quando o último toque longo abriu o menu da mensagem
+  const toqueLongoEmRef = useRef(0);
   // ARRASTAR PARA RESPONDER (celular): igual ao aplicativo do WhatsApp —
   // desliza a bolha para o lado e ela vira resposta marcada
   const swipeRef = useRef<{
@@ -1995,8 +2004,15 @@ export function Inbox({
   // "pressionar e segurar" (celular) abre o menu de ações da mensagem
   function startLongPress(m: InboxMessage) {
     cancelLongPress();
-    lpTimerRef.current = setTimeout(() => abrirMenuDaMensagem(m), 450);
+    lpTimerRef.current = setTimeout(() => {
+      // o toque longo abriu o menu: o clique que alguns aparelhos soltam ao
+      // levantar o dedo não pode seguir o link que estava embaixo
+      toqueLongoEmRef.current = Date.now();
+      abrirMenuDaMensagem(m);
+    }, 450);
   }
+  /** o clique chegou logo depois de um toque longo? (links da bolha o ignoram) */
+  const cliqueDoToqueLongo = () => Date.now() - toqueLongoEmRef.current < 1200;
   function cancelLongPress() {
     if (lpTimerRef.current) {
       clearTimeout(lpTimerRef.current);
@@ -4097,7 +4113,13 @@ export function Inbox({
                           <StickyNote className="size-3" />
                           Nota interna · {m.authorName ?? "equipe"}
                         </p>
-                        <span className="whitespace-pre-wrap">{m.body}</span>
+                        <span className="whitespace-pre-wrap break-words">
+                          <TextoComLinks
+                            texto={m.body}
+                            className="text-amber-900 font-medium"
+                            aoAbrirDentro={setPaginaAberta}
+                          />
+                        </span>
                       </div>
                     </div>
                     </Fragment>
@@ -4179,6 +4201,18 @@ export function Inbox({
                               // o NAVEGADOR: é dele que sai o "Copiar" de
                               // sempre (`menuDoNavegador`)
                               if (menuDoNavegador(selecaoDentroDe(e.currentTarget)))
+                                return;
+                              // em cima de um LINK também: é do navegador que
+                              // sai o "copiar endereço do link" e o "abrir em
+                              // outra aba" (o menu da mensagem segue no ⋯ e
+                              // no resto da bolha)
+                              // — só com MOUSE: no celular o toque longo já
+                              // é do menu da mensagem, e deixar o do aparelho
+                              // abrir junto empilharia dois menus
+                              if (
+                                noComputador &&
+                                (e.target as HTMLElement).closest?.("a[data-link-do-texto]")
+                              )
                                 return;
                               e.preventDefault();
                               abrirMenuDaMensagem(m);
@@ -4329,9 +4363,20 @@ export function Inbox({
                                 m.revoked ? "italic opacity-80" : ""
                               }`}
                             >
-                              {m.mediaType === "TEXT" || m.mediaType === "TEMPLATE"
-                                ? m.body
-                                : legendaDaMidia(m)}
+                              {/* os links do texto são clicáveis (15/11/2026);
+                                  no modo de marcar texto do celular o toque é
+                                  das alças, então o texto fica cru */}
+                              <TextoComLinks
+                                texto={
+                                  m.mediaType === "TEXT" || m.mediaType === "TEMPLATE"
+                                    ? m.body
+                                    : legendaDaMidia(m)
+                                }
+                                ativo={!marcandoTexto}
+                                className={mine ? "text-white decoration-white/70" : "text-brand-700"}
+                                aoAbrirDentro={setPaginaAberta}
+                                engolirClique={cliqueDoToqueLongo}
+                              />
                             </p>
                           )}
                         </>
@@ -5218,6 +5263,14 @@ export function Inbox({
           nome={documentoAberto.nome}
           onClose={() => setDocumentoAberto(null)}
         />
+      </Portal>
+    )}
+
+    {/* página do próprio sistema aberta por um link da conversa, no app
+        instalado: por cima, com X (abrir "fora" ali prende a tela) */}
+    {paginaAberta && (
+      <Portal>
+        <VisorDePagina href={paginaAberta} onClose={() => setPaginaAberta(null)} />
       </Portal>
     )}
 

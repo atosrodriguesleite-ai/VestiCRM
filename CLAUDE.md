@@ -2272,6 +2272,66 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   topo, campo colado no teclado; a barra do app sai de vista só enquanto se
   digita. E a barra de ícones do campo cabe em 390px (o botão de fechar o
   teclado ficava cortado).
+  **Links clicáveis e PDF que abre e fecha dentro da conversa** (15/11/2026,
+  pedido do dono: *"visualizar e fechar PDF dentro da conversa e abrir links
+  enviados e recebidos"*). **Links** (`lib/links-do-texto.ts` +
+  `components/texto-com-links.tsx`): o texto da bolha, da legenda da mídia e
+  da nota interna era cru; agora o endereço vira link, por estas réguas — o
+  texto vem da CLIENTE, então **só `http`/`https`** (o endereço é montado por
+  nós e conferido pelo leitor do navegador; `javascript:`, `data:` e endereço
+  com usuário embutido, "banco.com@golpe.com", nunca viram link — nem pela
+  metade, e o nome de um e-mail com cara de domínio também não); **o que
+  aparece é o que foi escrito** e **o endereço não perde pedaço**: da ponta
+  só sai a pontuação da FRASE — o "_" do fim é dele ("instagram.com/loja_"
+  sem ele é OUTRO perfil, achado da revisão), e "*", "_", "~" só saem quando
+  são o negrito/itálico do WhatsApp (o mesmo sinal abre o link); **domínio
+  solto só com cara de endereço** — minúsculas, e sem caminho só ".com",
+  ".net", ".org" e ".br"; a terminação que também é palavra ou sílaba ("me",
+  "ar", "site", "link", "online"…) só vale com caminho: "wa.me/55…" é link,
+  "obrigada.Me avisa" e "manda o site.link do catálogo" (ponto sem espaço)
+  não; e **a leitura é linear** — a mensagem do WhatsApp chega a 65 mil
+  letras, e a busca sem teto de rótulos levava 3 s por bolha desenhada
+  (travaria a Central de quem abrisse a conversa; hoje 27 ms no pior caso, e
+  o teste prende). O link abre FORA (`target="_blank"`, `noopener
+  noreferrer` — a página aberta não alcança a janela do sistema nem sabe de
+  qual conversa veio); **página PÚBLICA do próprio sistema dentro do
+  aplicativo INSTALADO abre numa janela nossa com X** (`ondeAbrir` →
+  `visor-de-pagina.tsx`): lá o aparelho abriria dentro do app, sem botão de
+  voltar — a armadilha do PDF. A janela é **só do sistema** (achado da
+  revisão: um site de fora dentro dela seria o palco de um "sua sessão
+  venceu" falso): lista FECHADA de páginas públicas (rastreio, dados,
+  catálogo, bio… — nunca `/api/`, que redireciona para fora), moldura com
+  `sandbox` sem troca da tela de cima, conferida a cada carga (saiu do
+  sistema, a moldura é TIRADA e fica o botão do navegador), e a barra não
+  exibe endereço nenhum como selo. No modo de marcar texto do celular o link
+  é texto cru; o clique que alguns aparelhos soltam depois do toque longo é
+  ignorado (o menu da mensagem abriu); e o clique direito em cima de um link
+  DO TEXTO, no computador, é do navegador (copiar endereço) — o documento de
+  salvar segue abrindo o menu da mensagem. **PDF**
+  (`components/visor-de-documento.tsx`): o visor de 21/09 punha o PDF numa
+  MOLDURA do navegador, que só funciona no computador — no iPhone saía só a
+  primeira página e no Android, nada. Agora as páginas são **desenhadas por
+  nós** (pdf.js, a peça do romaneio), com X, Esc, toque no fundo, zoom
+  (botões e dois toques, **mantendo a página que estava no meio da tela**)
+  e salvar. Só fica DESENHADA a página perto da tela (as outras guardam o
+  lugar), a que se afasta devolve o quadro E o que o pdf.js guardou dela
+  (`cleanup` — as fotos decodificadas ficavam para sempre), e cada página
+  tem teto de pontos (`medidasDaPagina`, `TETO_DE_PONTOS`) — um catálogo de
+  60 páginas desenhado inteiro derrubaria a aba do celular. O arquivo é
+  conferido pelo CONTEÚDO (`pareceUmPdf`, a marca `%PDF-`) e pelos
+  PRIMEIROS bytes (o que não é PDF para de baixar ali): o documento que
+  chegou **sem extensão no nome** também tenta o visor (`abreNoVisor`), e o
+  que não é PDF, o PDF com senha e a falha DIZEM o que houve e deixam o
+  botão de salvar — nunca uma tela preta muda. Nada de dentro do PDF roda
+  (sem script, formulário ou link do documento). Provado no navegador em
+  tamanho de celular e de computador contra o build local (14 páginas: 3
+  desenhadas no começo, a 1 solta ao chegar na 14; o zoom na página 10
+  continua na 10; o arquivo HTML disfarçado de documento não roda; a página
+  que redireciona para fora perde a moldura). **Limites ditos**: não deu
+  para testar num iPhone de verdade daqui — o pdf.js é o mesmo do romaneio,
+  que já roda neles; "amanha.com certeza", em minúsculas e sem acento, vira
+  link (como no próprio WhatsApp — não há como separar de "loja.com"); e a
+  mídia gravada como link externo (rara) não abre no visor, só salva.
   **Emoji**: o seletor (`seletor-de-emoji.tsx`, grade em `lib/emojis.ts`)
   tem **barra de pesquisa** em português sem acento ("coracao", "caixa",
   "feliz"; Enter escolhe o primeiro) e é o MESMO na caixa de **editar
