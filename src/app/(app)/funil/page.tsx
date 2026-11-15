@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { maybeSyncNuvemshop } from "@/lib/nuvemshop";
 import { conciliarFunilComPedidos } from "@/lib/opportunity-sync";
@@ -26,10 +27,24 @@ export default async function FunnelPage({
   if (user.role === "SUPPORT") redirect("/pedidos");
   // loja integrada: busca carrinhos abandonados da Nuvemshop em 2º plano
   maybeSyncNuvemshop(user.companyId);
-  // FUNIL REAL: pedido antigo que nasceu sem cartão ganha o seu antes de a
-  // tela carregar — pago entra FECHADO com a data real; aberto entra na etapa
-  // certa. Em rodadas de 40 (loja com anos de pedidos concilia em algumas
-  // aberturas sem pesar nenhuma); zerado o passado, vira uma consulta vazia.
+  // FUNIL REAL: pedido antigo que nasceu sem cartão ganha o seu — pago entra
+  // FECHADO com a data real; aberto entra na etapa certa. Em rodadas de 40
+  // (loja com anos de pedidos concilia em algumas aberturas); zerado o
+  // passado, vira uma consulta vazia.
+  //
+  // VELOCIDADE (15/11/2026, pedido do dono: "desenhar primeiro, conferir
+  // depois"): a conferência roda DEPOIS da resposta (`after`), não antes de a
+  // tela carregar. Com pedido solto ela faz até ~7 idas ao banco por pedido,
+  // 40 por rodada, e a tela inteira esperava por isso; sem pedido solto, eram
+  // duas idas em fila na frente de tudo. O preço é dito: o cartão do pedido
+  // que estava solto aparece na PRÓXIMA abertura do Funil, não nesta. Pedido
+  // novo não passa por aqui — ele ganha o cartão ao nascer.
+  after(async () => {
+    await conciliarFunilComPedidos(user.companyId);
+    // RN-091: funil que nasceu sem os vínculos de "anda sozinho" ganha os seus
+    // (esta tela não lê os vínculos — o editor os busca ao abrir)
+    await garantirMarcosIniciais(user.companyId);
+  });
   const scope = ownedScope(user);
   const { de, ate } = await searchParams;
   const from = de && !Number.isNaN(Date.parse(`${de}T00:00:00Z`))
@@ -45,13 +60,9 @@ export default async function FunnelPage({
   // consultas saem em RODADAS: tudo o que não depende de ninguém vai junto,
   // e só espera quem realmente precisa do resultado anterior.
   //
-  // Rodada 1 — nada aqui depende de nada: a conciliação do funil (que grava
-  // e por isso tem de terminar antes de LER as oportunidades), o slug da
-  // loja, o funil com suas etapas e a lista de clientes.
-  const [, , funnelCompany, pipeline, customers] = await Promise.all([
-    conciliarFunilComPedidos(user.companyId),
-    // RN-091: funil que nasceu sem os vínculos de "anda sozinho" ganha os seus
-    garantirMarcosIniciais(user.companyId),
+  // Rodada 1 — nada aqui depende de nada: o slug da loja, o funil com suas
+  // etapas e a lista de clientes.
+  const [funnelCompany, pipeline, customers] = await Promise.all([
     db.company.findUnique({
       where: { id: user.companyId },
       select: { slug: true, funilEditavelEnabled: true },

@@ -60,7 +60,8 @@ import {
 import { Avatar } from "./ui";
 import { Logo, LogoMark } from "./logo";
 import { NotificationBell } from "./notification-bell";
-import { SinalDeNavegacao } from "./sinal-de-navegacao";
+import { SinalDeNavegacao, useTrocaDemorada } from "./sinal-de-navegacao";
+import Esqueleto from "@/app/(app)/loading";
 import { fileToDataUrl } from "@/lib/upload";
 import { grupoDoMenu, itemVisivel, rotuloDoMenu } from "@/lib/menu-grupos";
 
@@ -268,6 +269,8 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  // a troca de tela pelo menu que passou do tempo: esqueleto no lugar da tela
+  const trocaDemorada = useTrocaDemorada();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -422,6 +425,22 @@ export function AppShell({
     router.refresh();
   }
 
+  /**
+   * A TELA COMEÇA A VIR QUANDO O DEDO ENCOSTA, NÃO QUANDO SOLTA (15/11/2026,
+   * pedido do dono: "o sistema ficaria mais rápido ainda?"). O clique só
+   * acontece quando o dedo (ou o botão do mouse) SOLTA — uns 0,1 s depois de
+   * encostar. Pedir a tela já no encostar adianta esse tempo em toda troca de
+   * aba, e o clique que vem em seguida REAPROVEITA o mesmo pedido (não são
+   * duas idas ao servidor). Encostar e desistir (arrastar o menu) custa uma
+   * montagem de tela à toa — por isso é só no toque, nunca ao passar o mouse.
+   * A tela em que a pessoa já está não é pedida de novo.
+   */
+  const adiantar = (href: string, ativo: boolean) => (e: React.PointerEvent) => {
+    // só o toque e o botão principal do mouse (o do meio abre outra aba)
+    if (ativo || e.button !== 0) return;
+    router.prefetch(href);
+  };
+
   const navLinks = (onClick?: () => void, showLabels = true) => (
     <nav className="flex-1 px-3 py-2 space-y-4 overflow-y-auto thin-scroll">
       {grupos.map((group) => {
@@ -466,6 +485,7 @@ export function AppShell({
                     key={item.href}
                     href={item.href}
                     onClick={onClick}
+                    onPointerDown={adiantar(item.href, active)}
                     title={!showLabels ? rotuloDoItem(item.href, item.label) : undefined}
                     className={`group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition duration-150 ${
                       active
@@ -639,7 +659,11 @@ export function AppShell({
         {/* com o teclado aberto a barra de baixo some → o espaço dela também
             (regra em globals.css: body.teclado-aberto) */}
         <main className="area-principal flex-1 p-4 md:p-8 pb-24 md:pb-8 animate-fade-in">
-          {children}
+          {/* a tela velha fica MONTADA e escondida (se a troca for desfeita,
+              ela volta como estava); `contents` = a caixa não existe para o
+              desenho, a tela se comporta como filha direta do <main> */}
+          {trocaDemorada && <Esqueleto />}
+          <div className={trocaDemorada ? "hidden" : "contents"}>{children}</div>
         </main>
 
         {/* Bottom nav mobile */}
@@ -651,6 +675,7 @@ export function AppShell({
               <Link
                 key={item.href}
                 href={item.href}
+                onPointerDown={adiantar(item.href, active)}
                 className={`relative flex flex-col items-center gap-0.5 py-2.5 px-3 text-[10px] font-medium transition active:scale-95 active:opacity-70 ${
                   active ? "text-brand-600" : "text-slate-400"
                 }`}

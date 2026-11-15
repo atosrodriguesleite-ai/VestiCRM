@@ -5376,6 +5376,22 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   "quem chamar hoje" (`computeAutomations`) consultam juntas, e o toque no
   menu mostra NA HORA a barrinha cobre no topo (`sinal-de-navegacao.tsx`,
   `useLinkStatus`) — sem ela a tela parecia travada e a pessoa tocava de novo.
+  **O menu pede a tela quando o dedo ENCOSTA, não quando solta**
+  (`adiantar` no `app-shell.tsx`, 15/11/2026, pedido do dono): o clique só
+  acontece ao soltar, ~0,1 s depois, e o clique reaproveita o pedido já
+  feito. Medido no navegador em tamanho de celular contra o build local: a
+  tela nova chega ~0,05 a 0,12 s mais cedo em toda troca de aba, com rede
+  boa ou fraca. O preço, e a cura: pedindo a tela inteira, o Next deixa de
+  mostrar o esqueleto na hora — então **o esqueleto é nosso e só aparece se
+  a troca demorar** (`MS_PARA_O_ESQUELETO`, 0,2 s depois do clique;
+  `useTrocaDemorada`): com rede boa nada pisca, com rede fraca ele entra no
+  lugar da tela velha (que fica montada e escondida). Só no toque/clique,
+  nunca ao passar o mouse (cada pedido é uma montagem de tela). **E o Funil
+  desenha primeiro e confere depois**: a conciliação "todo pedido tem
+  cartão" (`conciliarFunilComPedidos`) e o reparo dos marcos rodam no
+  `after()`, não antes de a tela carregar — com pedido solto eram até ~7
+  idas ao banco por pedido, 40 por abertura; o cartão do pedido que estava
+  solto aparece na PRÓXIMA abertura (provado contra o Postgres local).
 - **Dinheiro** (25/07/2026): Mercado Pago marketplace (Pix com confirmação
   automática via `lib/settle-order.ts`; taxa da plataforma 0,5% em
   `PLATFORM_FEE_PCT`/`feePercent` por loja), tela Financeiro (contas a
