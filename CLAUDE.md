@@ -5277,6 +5277,90 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   ligada, **TODAS as contagens da tela entram nela** (`comFila`, irmão do
   `comCampanha`): o chip que somava a loja inteira dizia 58 e abria 2, e a
   paginação prometia páginas vazias (achados da revisão).
+  **RN-111 · O DANFE SIMPLIFICADO – ETIQUETA SAI DO SISTEMA, E É UM RETRATO
+  DO XML AUTORIZADO** (`lib/nfe/xml-da-nota.ts` + `lib/nfe/code128.ts` +
+  `lib/nfe/danfe-simplificado.ts`, `baixarXmlDaNfe` em `lib/bling.ts`, rota
+  `/danfe-simplificado/[id]`, botões
+  `components/pedido/danfe-simplificado.tsx`, 16/11/2026): pedido do dono com
+  o print da tela de impressão do Melhor Envio — a etiqueta comprada pela
+  integração COM a chave da nota (RN-016) sai com "NF: 91", mas a página de
+  lá só oferece Etiquetas, Romaneios e Comprovantes: o **DANFE simplificado
+  não aparece** (ele só existe lá quando a nota inteira é entregue ao Melhor
+  Envio, o que a compra pela API não faz — conferido com o teste do dono, não
+  pela documentação, que não diz). A loja ficava com a etiqueta numa mão e o
+  DANFE completo em A4 na outra. Agora o sistema desenha o DANFE
+  Simplificado – Etiqueta, em quatro decisões: (1) **os dados saem do XML que
+  a SEFAZ autorizou, nunca do cadastro daqui** — o Bling entrega o XML pela
+  chave (`GET /nfe/documento/{chave}?formato=xml`, `data[].conteudo` em GZIP +
+  base64, lido na especificação da API v3; segunda fonte: o campo `xml` da
+  MESMA consulta da nota, cujo link só é seguido se for https e do Bling —
+  cada redirecionamento conferido pela mesma régua, corpo lido com teto —,
+  **sem o token da loja**). A ficha da cliente pode ter mudado depois da emissão, e
+  um DANFE com o nome de hoje numa nota de ontem diria o que a nota não diz.
+  (2) **O leitor recusa em vez de adivinhar** (`lerNotaDoXml`, puro): a chave
+  do XML (e a do protocolo) tem que ser a do PEDIDO; sem o **Protocolo de
+  Autorização de Uso** não há DANFE; só situação 100/150 (autorizada);
+  contingência EPEC é recusada com o caminho (a norma pede o protocolo do
+  evento, que o XML não traz); e campo obrigatório em branco é recusa
+  dizendo QUAL — nunca um documento com buraco. A recusa volta como
+  **página em português** (a porta abre numa aba; JSON cru não diria nada) e
+  vai à Saúde **sem alarme e sem dado da nota** (só o motivo e os nomes dos
+  campos; a recusa DECIDIDA — nota não autorizada, EPEC — nem vai, a lição
+  da RN-010). **E a situação de AGORA é conferida no Bling antes de
+  desenhar** (a régua da compra da etiqueta, RN-016; achado da revisão): o
+  pedido aqui só muda quando alguém clica em "atualizar", e o XML arquivado
+  de uma nota CANCELADA ainda traz o protocolo — sem conferir, a caixa
+  viajaria com o papel de uma nota cancelada. Cancelada ou rejeitada lá
+  acerta o pedido; sem conseguir confirmar, o DANFE não sai; chave de lá
+  diferente da gravada recusa. A consulta e o XML saem JUNTOS (duas idas ao
+  Bling em paralelo). Nota de **homologação** (tpAmb 2) sai com "SEM VALOR
+  FISCAL" no papel. (3) **O desenho segue a Nota Técnica 2020.004 v1.10** (lida no
+  portal da NF-e): o título "DANFE SIMPLIFICADO - ETIQUETA", a chave em
+  números e em **código de barras Code 128 C** no alto do papel, o
+  protocolo com data e hora, emitente (nome, CNPJ, IE, UF), dados da nota
+  (tipo de operação, série, número, data de emissão) e destinatário (nome,
+  CNPJ/CPF, UF e IE **quando existir**); letra nunca menor que 6 pontos,
+  títulos em negrito e caixa alta; **o valor total fica de fora** (a v1.10
+  permite, § 15-A do Ajuste SINIEF 07/05 — valor escrito na caixa é convite
+  para extravio). O conteúdo é função pura (`camposDoDanfe`); o desenho é o
+  pdf-lib da casa. **O módulo do código de barras é 0,25 mm cravado**
+  (`MODULO_MM`): 2 pontos exatos na térmica de 203 dpi — módulo que não fecha
+  em pontos inteiros sai com barras desiguais; a tabela dos 107 padrões é
+  conferida no teste (11 módulos cada, parada com 13) e a codificação bateu
+  barra por barra com outra biblioteca e foi LIDA por um leitor independente
+  a partir do PDF em 203 e 300 dpi. A guia de recorte do A4 é **tracejada e
+  cinza**: uma linha preta cheia na altura das barras fazia o leitor de
+  teste falhar. (4) **Dois tamanhos**: A4 com o bloco de 100 mm no canto
+  superior direito, em tamanho real, para recortar e colar (padrão), e
+  página de 10 × 15 cm para impressora de etiqueta (`?formato=etiqueta`).
+  **Onde aparece**: no painel da nota do pedido quando ela está AUTORIZADA
+  (gerência, a régua do painel) e no painel de Envio quando a etiqueta foi
+  comprada com a nota — quem vê o pedido (RN-007) imprime; a rota recorta
+  pela loja da sessão (RN-013), só serve nota AUTORIZADA com chave, e
+  responde `no-store` (o papel tem CPF/CNPJ). **A porta mora FORA de
+  `/api`** (como a declaração de conteúdo): é link que abre numa aba, e o
+  porteiro responde JSON a quem chega em `/api` sem sessão — fora dela, a
+  pessoa vai para o login. O botão ao lado da ETIQUETA manda a chave com
+  que ela foi comprada, e a porta **recusa se a nota do pedido hoje for
+  outra** (nota cancelada e reemitida: dois papéis na mesma caixa apontando
+  notas diferentes). No aplicativo instalado o arquivo é buscado primeiro:
+  deu certo, abre no visor da casa, com X (a armadilha do PDF da Central);
+  recusou, a FRASE aparece na própria ficha (a porta responde JSON a quem
+  pede JSON). **Limites
+  ditos**: a norma prevê o DANFE simplificado para **venda a consumidor
+  final** (§ 5º-A da cláusula nona do Ajuste SINIEF 07/05) — para a empresa
+  com inscrição estadual (RN-054) a tela AVISA e manda confirmar com o
+  contador; o sistema não bloqueia. Etiqueta e DANFE são **dois papéis**
+  (a página do Melhor Envio não é um PDF nosso para juntar). A rota do
+  Bling e o formato do XML foram lidos na documentação, **não testados
+  contra o Bling de verdade daqui** — o primeiro uso em produção é a prova,
+  e a recusa diz o que faltou. A etiqueta comprada ANTES da nota continua
+  com declaração de conteúdo no Melhor Envio (o DANFE sai pelo painel da
+  nota do mesmo jeito). Guardado em `danfe-simplificado.test.ts` (código de
+  barras — com a amostra de outra biblioteca, barra por barra —, leitura do
+  XML, campos da norma, a busca no Bling) e
+  `danfe-simplificado-rota.test.ts` (a porta, com o Bling simulado: nota
+  cancelada lá, etiqueta de outra nota, quem não vê o pedido).
   **RN-019 · Pacote por categoria e simulador de frete**
   (`lib/envios/pacote.ts` + `lib/envios/simulador.ts`): cada categoria guarda
   o peso e as **medidas de 1 peça dobrada**

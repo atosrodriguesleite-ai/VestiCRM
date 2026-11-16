@@ -49,7 +49,7 @@ import {
 import { CobrancaNfe } from "./cobranca-nfe";
 import { resolverFiscalDoPedido } from "@/lib/bling";
 import { avisoDePecasSemNcm } from "@/lib/fiscal-ncm";
-import { explicarNatureza } from "@/lib/nfe-natureza";
+import { explicarNatureza, tipoDaCompradora } from "@/lib/nfe-natureza";
 import { acaoDaNota } from "@/lib/nfe-situacao";
 import { EnvioFrete } from "./envio-frete";
 import { TransferirVenda } from "./transferir-venda";
@@ -291,6 +291,9 @@ export default async function OrderDetailPage({
   // MUDOU (cadastrar a inscrição estadual transforma a compradora em
   // contribuinte, RN-054). Com nota AUTORIZADA ou em andamento não há botão,
   // e aí as duas consultas seguem fora do caminho (revisão de performance).
+  // RN-111: o DANFE simplificado é previsto para venda a consumidor final;
+  // para a empresa com inscrição estadual (RN-054) a tela avisa
+  const compradoraContribuinte = tipoDaCompradora(order.customer) === "CONTRIBUINTE";
   const avisoFiscal =
     blingConn && isManagerUp(user) && acaoDaNota(order.nfeStatus).pode
       ? await (async () => {
@@ -831,6 +834,7 @@ export default async function OrderDetailPage({
             // RN-054/RN-055: o que a nota VAI fazer, dito antes de emitir —
             // nota fiscal não se desfaz com um clique
             avisoFiscal={avisoFiscal}
+            compradoraContribuinte={compradoraContribuinte}
             nfe={{ status: order.nfeStatus, number: order.nfeNumber, url: order.nfeUrl }}
           />
 
@@ -842,6 +846,7 @@ export default async function OrderDetailPage({
               hasZip={(order.customer.zip ?? "").replace(/\D/g, "").length === 8}
               canBuy={isManagerUp(user)}
               isCancelled={order.status === "CANCELADO"}
+              compradoraContribuinte={compradoraContribuinte}
               // "você já mandou o link em ..." — sem isso duas pessoas mandam
               // de novo, porque o "Enviado!" some em 4 segundos
               jaEnviadoEm={(() => {

@@ -19,6 +19,7 @@ import {
 import { Card } from "@/components/ui";
 import { brl } from "@/lib/format";
 import { acaoDaNota } from "@/lib/nfe-situacao";
+import { DanfeSimplificado } from "@/components/pedido/danfe-simplificado";
 
 /**
  * Painel "dinheiro" do pedido: cobrança Pix (Mercado Pago, confirma sozinha)
@@ -35,6 +36,7 @@ export function CobrancaNfe({
   canNfe,
   nfe,
   avisoFiscal,
+  compradoraContribuinte,
 }: {
   orderId: string;
   total: number;
@@ -51,6 +53,8 @@ export function CobrancaNfe({
    * e deixa rastro —, então o erro tem que aparecer ANTES do botão.
    */
   avisoFiscal?: { natureza: string; semNcm: string | null } | null;
+  /** RN-111: empresa com inscrição estadual — o DANFE simplificado avisa */
+  compradoraContribuinte?: boolean;
 }) {
   const router = useRouter();
   // REJEITADA/CANCELADA/ERRO continuam podendo virar nota (a regra mora em
@@ -345,6 +349,13 @@ export function CobrancaNfe({
                 )}
                 atualizar
               </button>
+
+              {/* RN-111: o DANFE simplificado (a "etiqueta" com a chave em
+                  código de barras) sai daqui — o Melhor Envio não o oferece
+                  para etiqueta comprada pela integração */}
+              {nfe.status === "AUTORIZADA" && (
+                <DanfeSimplificado orderId={orderId} contribuinte={compradoraContribuinte} />
+              )}
 
               {/* O CONSERTO FICA JUNTO DO PROBLEMA (relato do dono,
                   16/09/2026): a nota foi recusada, ele corrigiu o cadastro da

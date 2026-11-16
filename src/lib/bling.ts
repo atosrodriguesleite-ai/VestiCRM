@@ -1,3 +1,4 @@
+import { gunzipSync } from "node:zlib";
 import { db } from "./db";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { signState, verifyState } from "./nuvemshop"; // state assinado (HMAC)
@@ -774,6 +775,8 @@ export async function consultarNfe(
   numero?: string;
   url?: string;
   chave?: string;
+  /** o campo `xml` da nota, cru (link do Bling ou o próprio XML) — RN-111 */
+  xml?: string;
 }> {
   const res = await blingApi<{
     data?: {
@@ -782,6 +785,7 @@ export async function consultarNfe(
       linkDanfe?: string;
       linkPDF?: string;
       chaveAcesso?: string;
+      xml?: unknown;
     };
   }>(companyId, "GET", `/nfe/${blingId}`);
   const d = res.data?.data;
@@ -805,6 +809,7 @@ export async function consultarNfe(
     numero: d.numero ? String(d.numero) : undefined,
     url: d.linkDanfe ?? d.linkPDF ?? undefined,
     chave: limparChaveNfe(d.chaveAcesso),
+    xml: typeof d.xml === "string" && d.xml.trim() ? d.xml : undefined,
   };
 }
 
@@ -819,4 +824,128 @@ export function limparChaveNfe(valor: unknown): string | undefined {
   if (typeof valor !== "string") return undefined;
   const so = valor.replace(/\D/g, "");
   return so.length === 44 ? so : undefined;
+}
+
+/** teto do XML descomprimido (uma NF-e de pedido grande tem dezenas de KB) */
+const TETO_XML_NFE = 4_000_000;
+
+/**
+ * Descomprime o `conteudo` que o Bling devolve em `GET /nfe/documento`:
+ * "comprimido com GZIP e codificado em base64" (documentação da API v3).
+ * Exportada para o teste; devolve `null` quando não é isso.
+ */
+export function abrirDocumentoDoBling(conteudo: unknown): string | null {
+  if (typeof conteudo !== "string" || conteudo.length === 0) return null;
+  // base64 de 4 MB comprimidos jamais seria uma NF-e
+  if (conteudo.length > TETO_XML_NFE * 2) return null;
+  try {
+    const bruto = Buffer.from(conteudo, "base64");
+    // a marca do GZIP são os bytes 1F 8B
+    if (bruto.length > 2 && bruto[0] === 0x1f && bruto[1] === 0x8b)
+      return gunzipSync(bruto, { maxOutputLength: TETO_XML_NFE }).toString("utf8");
+    // sem a marca: o base64 já é o texto (tolerância — a documentação diz GZIP)
+    const texto = bruto.toString("utf8");
+    return texto.trimStart().startsWith("<") ? texto : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * O XML AUTORIZADO da NF-e, pela chave de acesso (RN-111).
+ *
+ * Rota `GET /nfe/documento/{chaveAcesso}?formato=xml` (API v3 do Bling, 2026):
+ * devolve `data: [{ nome, conteudo }]`. Pode vir mais de um documento (a nota
+ * e eventos dela); vale o que tem a NF-e, de preferência com o protocolo.
+ *
+ * `ok: false` traz a frase pronta — a tela nunca recebe "erro 404" seco.
+ */
+export async function baixarXmlDaNfe(
+  companyId: string,
+  chave: string
+): Promise<{ ok: true; xml: string } | { ok: false; error: string; status: number }> {
+  const limpa = limparChaveNfe(chave);
+  if (!limpa) return { ok: false, error: "A chave de acesso desta nota não é válida.", status: 0 };
+  const res = await blingApi<{ data?: unknown }>(
+    companyId,
+    "GET",
+    `/nfe/documento/${limpa}?formato=xml`
+  );
+  if (!res.ok) return { ok: false, error: blingErro(res.raw, res.status), status: res.status };
+  const data = res.data?.data;
+  const itens: unknown[] = Array.isArray(data) ? data : data ? [data] : [];
+  const xmls = itens
+    .map((i) => abrirDocumentoDoBling((i as { conteudo?: unknown } | null)?.conteudo))
+    .filter((x): x is string => Boolean(x && x.includes("infNFe")));
+  const xml = xmls.find((x) => x.includes("protNFe")) ?? xmls[0];
+  if (!xml)
+    return {
+      ok: false,
+      error: "O Bling respondeu, mas não devolveu o XML desta nota.",
+      status: res.status,
+    };
+  return { ok: true, xml };
+}
+
+/** O endereço é https e do Bling? (o link vem de uma RESPOSTA: nada fora disso é seguido) */
+function linkDoBling(valor: string): URL | null {
+  let url: URL;
+  try {
+    url = new URL(valor);
+  } catch {
+    return null;
+  }
+  const doBling = url.hostname === "bling.com.br" || url.hostname.endsWith(".bling.com.br");
+  return url.protocol === "https:" && doBling ? url : null;
+}
+
+/** Lê o corpo até o teto; passou do teto, larga e devolve `null`. */
+async function textoAteOTeto(res: Response, teto: number): Promise<string | null> {
+  if (Number(res.headers.get("content-length") ?? 0) > teto) return null;
+  if (!res.body) return null;
+  const leitor = res.body.getReader();
+  const pedacos: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > teto) {
+      void leitor.cancel().catch(() => {});
+      return null;
+    }
+    pedacos.push(value);
+  }
+  return Buffer.concat(pedacos).toString("utf8");
+}
+
+/**
+ * Segunda fonte do XML (RN-111): o campo `xml` que a consulta da nota
+ * (`consultarNfe`) já trouxe — um link do próprio Bling, ou o XML em si. Só
+ * entra quando a rota por chave não entregou o XML com o protocolo.
+ *
+ * O link só é seguido se for https e do Bling, e cada REDIRECIONAMENTO é
+ * conferido pela mesma régua (até 3 saltos) — o endereço vem de uma
+ * resposta. O token da loja NUNCA vai junto, e o corpo é lido com teto.
+ */
+export async function abrirXmlDaConsulta(valor: string | null | undefined): Promise<string | null> {
+  if (typeof valor !== "string" || !valor.trim()) return null;
+  if (valor.trimStart().startsWith("<")) return valor.length <= TETO_XML_NFE ? valor : null;
+  let url = linkDoBling(valor);
+  try {
+    for (let salto = 0; url && salto <= 3; salto++) {
+      const r = await fetch(url, { signal: AbortSignal.timeout(15_000), redirect: "manual" });
+      if (r.status >= 300 && r.status < 400) {
+        const para = r.headers.get("location");
+        url = para ? linkDoBling(new URL(para, url).href) : null;
+        continue;
+      }
+      if (!r.ok) return null;
+      const texto = await textoAteOTeto(r, TETO_XML_NFE);
+      return texto && texto.includes("infNFe") ? texto : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }

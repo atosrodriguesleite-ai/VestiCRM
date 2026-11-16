@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { DanfeSimplificado } from "@/components/pedido/danfe-simplificado";
 import {
   Truck,
   Loader2,
@@ -82,6 +83,7 @@ export function EnvioFrete({
   isCancelled,
   initialShipping,
   jaEnviadoEm,
+  compradoraContribuinte,
 }: {
   orderId: string;
   customerName: string;
@@ -91,6 +93,8 @@ export function EnvioFrete({
   initialShipping: Ship;
   /** quando o link já foi mandado para a cliente (texto pronto) */
   jaEnviadoEm?: string | null;
+  /** RN-111: empresa com inscrição estadual — o DANFE simplificado avisa */
+  compradoraContribuinte?: boolean;
 }) {
   const router = useRouter();
   const [ship, setShip] = useState<Ship>(initialShipping);
@@ -621,6 +625,17 @@ export function EnvioFrete({
               </button>
             )}
           </div>
+          {/* RN-111: a etiqueta saiu com a nota, mas a página do Melhor Envio
+              não oferece o DANFE simplificado — ele sai daqui */}
+          {ship?.nfeKey && ship.meStatus !== "CANCELADO" && (
+            <DanfeSimplificado
+              orderId={orderId}
+              contribuinte={compradoraContribuinte}
+              // a chave com que ESTA etiqueta foi comprada: se a nota do pedido
+              // hoje é outra, a porta recusa em vez de imprimir a nota errada
+              chaveDaEtiqueta={ship.nfeKey}
+            />
+          )}
         </div>
       ) : isCancelled ? (
         <p className="text-sm text-gray-400">Pedido cancelado — sem envio.</p>
