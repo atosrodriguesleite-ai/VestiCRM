@@ -19,6 +19,7 @@
     "check:docs": "vitest run src/lib/__tests__/docs-regras.test.ts --silent"
   },
   "dependencies": {
+    "@jitsi/rnnoise-wasm": "0.2.1",
     "@prisma/client": "^6.19.3",
     "@types/three": "^0.186.0",
     "bcryptjs": "^3.0.3",

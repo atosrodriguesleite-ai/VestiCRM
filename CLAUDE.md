@@ -2253,6 +2253,80 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   (`trechoDaBusca` em `lib/busca.ts`, posição no texto ORIGINAL) e quantas
   mensagens casaram; abrir a conversa PULA até a mensagem (carregando o
   passado página a página, com teto e aviso) e a barra ▲▼ anda entre elas.
+  **RN-112 · O ÁUDIO DE VOZ PASSA POR UM FILTRO DE RUÍDO POR IA, QUE NUNCA
+  ATRAPALHA O ENVIO** (`lib/filtro-de-ruido.ts`, arquivos em
+  `public/filtro-de-ruido/`, chavinha na engrenagem do microfone,
+  17/11/2026): relato do dono — *"meu áudio não bloqueia o ruído; troquei o
+  microfone e não era o headset; no Google Meet o anti-ruído funciona"*.
+  Medido no Chromium com a captura do sistema e microfone simulado: o filtro
+  do navegador (`noiseSuppression`) **está ligado** e tira bem o ruído
+  CONSTANTE (chiado: −19 dB), mas quase nada do que VARIA (máquina ligando e
+  parando + teclado: −1,2 dB; gente falando: −0,6 dB). Não era defeito nem
+  headset: o Meet tem um filtro por inteligência artificial dele. Entrou um
+  do mesmo tipo — o **RNNoise** (Xiph/Mozilla, o que o Jitsi Meet usa), em
+  WebAssembly, rodando **no navegador**, depois que a pessoa solta o botão
+  de gravar e antes de o áudio sair (nada vai a servidor nenhum). Entra
+  ANTES de toda a cadeia (`normalizarVoz`), em 48 kHz, a taxa em que foi
+  treinado; para descer à taxa do envio o som filtrado passa por um
+  passa-baixa nosso e pula amostras (`reduzirTaxa`, em ponto flutuante: a
+  voz até 8–9 kHz passa inteira, o que dobraria para dentro cai mais de 50
+  dB) — embrulhar num WAV de 16 bits para reaproveitar o decodificador
+  cortaria o que passa de 1,0 e arredondaria o som ANTES do `normalizarVoz`
+  (achado da revisão). **Medido na cadeia inteira**, em quantos dB o ruído
+  das pausas fica abaixo da voz: máquina + teclado 13 → 26; rua com buzina
+  24 → 39; teclado 16 → 24; música 13 → 18; várias pessoas falando 21 → 24;
+  **uma pessoa falando perto 28 → 28** (fala é fala — limite dito). A versão
+  **leve** do modelo (112 KB) empatou com a de 1,9 MB na cadeia inteira, e é
+  a que está aqui. Cinco réguas: (1) **nunca atrapalha o envio**, em quatro
+  frentes (`tentarFiltro` decide, sem navegador no meio, e nunca lança): o
+  filtro que não carregou em 4 s, falhou ou devolveu número inválido vira
+  "sem filtro" e o áudio sai pela cadeia de sempre (áudio sem o filtro é
+  melhor que áudio nenhum); o **trabalho** do filtro tem orçamento de 8 s
+  (`MS_ORCAMENTO_DO_FILTRO` — aparelho fraco demais para aquele áudio);
+  o áudio que **não vai caber no envio** (sai o arquivo original) nem passa
+  por ele — filtrar três minutos para jogar fora derrubava a aba do
+  celular; e a **carga** (`criarCarregadorDoFiltro`): a que falha não fica
+  guardada e a tentativa seguinte leva outro endereço (o navegador guarda a
+  falha de um `import()`), a pendurada tem prazo próprio (20 s) e **só faz
+  UM áudio esperar** — o segundo áudio enviado com a mesma tentativa ainda
+  pendente sai na hora, senão todo áudio ficaria 4 s sem bolha e a
+  vendedora gravaria de novo —, e o módulo que quebrou num áudio é largado
+  para o seguinte carregar outro (achados da revisão); (2) **a voz não fica "debaixo d'água"**: sai 90%
+  do filtrado + 10% do original (`PARTE_DO_ORIGINAL`) — o ruído nunca cai
+  mais que 20 dB por conta do filtro, e a mistura não piorou nenhum cenário
+  medido; o atraso de um quadro do filtro é descontado antes de misturar
+  (`ATRASO_DO_FILTRO`, o teste confere o alinhamento); (3) **o filtro entra
+  AQUECIDO**: sem saber o ruído da sala, o começo do áudio saía com o chiado
+  quase inteiro (6 dB em vez de 16); ele ouve o primeiro segundo antes de
+  começar (`QUADROS_DE_AQUECIMENTO`) — **de trás para a frente**, porque na
+  ordem normal a fala de 1 s depois vazava para o silêncio do começo (+19
+  dB medido; de trás para a frente, zero); (4) **a tela não congela**: o
+  filtro trabalha em fatias e devolve o fôlego ao navegador a cada 2 s de
+  áudio — por canal de mensagens, não por `setTimeout`, que a aba
+  escondida segura em 1 s por chamada (a vendedora que solta o botão e
+  troca de aba esperaria meio minuto a mais); ele começa a carregar quando a gravação COMEÇA (124 KB, uma vez
+  por aba), e ao soltar o botão já está pronto; (5) **nasce ligado e a
+  pessoa desliga** ("Filtro de ruído forte" na engrenagem do microfone,
+  guardado no aparelho) — filtro por IA pode deixar a voz "processada" com
+  barulho forte, e a barra de gravação diz, ao passar o mouse, se ele está
+  ligado; **ligado e NÃO entrou num áudio, a tela avisa por quê**
+  (`avisoDoFiltro`: não carregou a tempo, áudio longo demais, falhou) —
+  dizer "ligado" para um áudio que saiu sem ele seria mentir. Os dois
+  arquivos do filtro moram na pasta pública e são pedidos
+  **por fora do empacotador** (a cola do WebAssembly traz caminhos de Node
+  que o empacotador tentaria resolver); são cópias byte a byte do pacote
+  `@jitsi/rnnoise-wasm` (versão fixa) — o teste (`npm test`, não o
+  build) falha se divergirem —, com as duas licenças ao lado (Apache-2.0 do
+  empacotamento e a BSD do RNNoise). **Limites ditos**: não é o filtro do Meet (o deles é maior e
+  proprietário) — o ganho é real, não idêntico; pessoa falando perto não
+  some; barulho MUITO forte (máquina quase no volume da voz) melhora pouco
+  (5 → 10 dB); o áudio longo demais para virar WAV sai no formato original,
+  sem o filtro; e ninguém aqui OUVIU o resultado — foi medido com voz
+  sintética e ruído gerado, a validação de ouvido é do dono. Guardado em
+  `filtro-de-ruido.test.ts` (o filtro de verdade sobre uma voz de amostra:
+  ruído cai, voz fica, alinhamento, aquecimento, falha que lança e devolve
+  a memória, a decisão por áudio, a descida de taxa e a carga) e provado no navegador com microfone simulado contra o build
+  local.
   **Colar imagem no campo** (`lib/colar-imagem.ts`, 16/09/2026, pedido do
   dono: "tiro o print, clico no campo e colo, como no aplicativo"): o print
   colado **fica preso no campo** (miniatura com X, faixa "1 imagem pronta

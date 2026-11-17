@@ -19,6 +19,13 @@
  * não ir (WAV é sem compressão: 16 kHz ≈ 32 KB/s, 32 kHz ≈ 64 KB/s).
  */
 
+import {
+  TAXA_DO_FILTRO,
+  tentarFiltro,
+  type ModuloDoFiltro,
+  type ResultadoDoFiltro,
+} from "./filtro-de-ruido";
+
 /**
  * Da melhor para a pior — a primeira que couber no teto vence.
  *
@@ -477,7 +484,13 @@ export function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffe
  */
 export async function gravacaoParaWav(
   blob: Blob,
-  tetoBytes: number = TETO_AUDIO_BYTES
+  tetoBytes: number = TETO_AUDIO_BYTES,
+  opcoes: {
+    /** o filtro de ruído por IA já carregado (RN-112); sem ele, a cadeia de sempre */
+    filtro?: ModuloDoFiltro | null;
+    /** o que aconteceu com o filtro NESTE áudio (a tela avisa quando não entrou) */
+    aoFiltrar?: (resultado: ResultadoDoFiltro) => void;
+  } = {}
 ): Promise<Blob | null> {
   try {
     const janela = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
@@ -510,7 +523,29 @@ export async function gravacaoParaWav(
     // faixa audível como um ruído áspero, que soa como estouro. Decodificar
     // de novo num contexto JÁ na taxa alvo usa o reamostrador de verdade do
     // decodificador (com filtro). Se não der, o caminho antigo continua.
-    const mono = await decodificarNaTaxa(bytes, alvo).catch(() => null);
+    //
+    // O FILTRO DE RUÍDO POR IA entra ANTES de tudo (RN-112), em 48 kHz, que
+    // é a taxa em que ele foi treinado. Falhou, demorou ou não veio: a
+    // cadeia de sempre — áudio sem o filtro é melhor que áudio nenhum. E o
+    // áudio que NÃO vai caber no envio (sai o arquivo original) nem passa
+    // por ele: filtrar três minutos para jogar fora derrubava a aba do
+    // celular (achado da revisão).
+    const { amostras: filtrado, resultado } = await tentarFiltro({
+      filtro: opcoes.filtro,
+      alvo,
+      cabe: 44 + total * 2 <= tetoBytes,
+      // o áudio já foi decodificado ali em cima: em 48 kHz, é só juntar os canais
+      em48: async () =>
+        decodificado.sampleRate === TAXA_DO_FILTRO
+          ? emMono(decodificado)
+          : decodificarNaTaxa(bytes, TAXA_DO_FILTRO),
+    });
+    try {
+      opcoes.aoFiltrar?.(resultado);
+    } catch {
+      // o aviso da tela nunca derruba o áudio
+    }
+    const mono = filtrado ?? (await decodificarNaTaxa(bytes, alvo).catch(() => null));
     const amostras = mono ?? (await reamostrarTocando(decodificado, alvo, total));
 
     // o volume é acertado ANTES de virar PCM: passar de 1.0 aqui vira corte
@@ -525,7 +560,11 @@ export async function gravacaoParaWav(
 /** Decodifica o arquivo já na taxa pedida e junta os canais em um (média). */
 async function decodificarNaTaxa(bytes: ArrayBuffer, taxa: number): Promise<Float32Array> {
   const ctx = new OfflineAudioContext({ numberOfChannels: 1, length: 1, sampleRate: taxa });
-  const buf = await ctx.decodeAudioData(bytes.slice(0));
+  return emMono(await ctx.decodeAudioData(bytes.slice(0)));
+}
+
+/** Junta os canais do áudio em um (média). */
+function emMono(buf: AudioBuffer): Float32Array {
   const canais = buf.numberOfChannels;
   if (canais === 1) return buf.getChannelData(0);
   const mono = new Float32Array(buf.length);

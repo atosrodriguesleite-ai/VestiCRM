@@ -27,12 +27,17 @@ export function EscolherMicrofone({
   onEscolher,
   onGravar,
   gravando,
+  filtroDeRuido,
+  onFiltroDeRuido,
 }: {
   escolhidoId: string | null;
   onEscolher: (id: string | null, rotulo: string) => void;
   /** o toque no microfone: começa a gravar */
   onGravar: () => void;
   gravando: boolean;
+  /** o filtro de ruído por IA está ligado neste aparelho? (RN-112) */
+  filtroDeRuido: boolean;
+  onFiltroDeRuido: (ligado: boolean) => void;
 }) {
   const [aberto, setAberto] = useState(false);
   const [lista, setLista] = useState<MediaDeviceInfo[] | null>(null);
@@ -109,6 +114,26 @@ export function EscolherMicrofone({
             <p className="px-2 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
               Gravar com qual microfone
             </p>
+
+            {/* FILTRO DE RUÍDO POR IA (RN-112): fica ANTES da lista e fora do
+                "carregando"/"erro" — ligar e desligar não depende de o
+                navegador ter mostrado os microfones */}
+            <label className="mb-1 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-gray-50">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 shrink-0 accent-brand-600"
+                checked={filtroDeRuido}
+                onChange={(e) => onFiltroDeRuido(e.target.checked)}
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-gray-700">Filtro de ruído forte</span>
+                <span className="block text-[11px] leading-snug text-gray-400">
+                  Abaixa máquina, teclado e barulho de rua no áudio. Se a sua voz sair estranha,
+                  desligue aqui.
+                </span>
+              </span>
+            </label>
+            <div className="mb-1 border-t border-gray-100" />
 
             {carregando && (
               <p className="flex items-center gap-2 px-2 py-3 text-xs text-gray-500">

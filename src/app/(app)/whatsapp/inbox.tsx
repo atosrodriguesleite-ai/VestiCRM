@@ -115,6 +115,14 @@ import {
   microfoneSumiu,
   nomeCurtoDoMicrofone,
 } from "@/lib/microfone";
+import {
+  CHAVE_FILTRO_DE_RUIDO,
+  aquecerFiltroDeRuido,
+  avisoDoFiltro,
+  descartarFiltroDeRuido,
+  filtroDeRuidoLigado,
+  filtroParaOAudio,
+} from "@/lib/filtro-de-ruido";
 import { EscolherMicrofone } from "./escolher-microfone";
 import { pausarOsOutros } from "@/lib/um-som-por-vez";
 import { Avatar, EmptyState } from "@/components/ui";
@@ -935,13 +943,26 @@ export function Inbox({
   const [micNome, setMicNome] = useState("");
   /** os filtros que o navegador DE FATO aplicou na captura (prova na barra) */
   const [micDetalhe, setMicDetalhe] = useState("");
+  // FILTRO DE RUÍDO POR IA (RN-112): nasce ligado, a pessoa desliga na
+  // engrenagem do microfone se a voz dela soar estranha; fica no aparelho
+  const [filtroRuido, setFiltroRuido] = useState(true);
   useEffect(() => {
     try {
       setMicId(window.localStorage.getItem(CHAVE_MICROFONE) || null);
+      setFiltroRuido(filtroDeRuidoLigado(window.localStorage.getItem(CHAVE_FILTRO_DE_RUIDO)));
     } catch {
       // navegador com armazenamento bloqueado: segue no padrão
     }
   }, []);
+  function escolherFiltroDeRuido(ligado: boolean) {
+    setFiltroRuido(ligado);
+    try {
+      if (ligado) window.localStorage.removeItem(CHAVE_FILTRO_DE_RUIDO);
+      else window.localStorage.setItem(CHAVE_FILTRO_DE_RUIDO, "0");
+    } catch {
+      // não deu para guardar: vale só nesta sessão
+    }
+  }
   function escolherMicrofone(id: string | null, rotulo: string) {
     setMicId(id);
     setMicNome(id ? nomeCurtoDoMicrofone(rotulo) : "");
@@ -2931,7 +2952,10 @@ export function Inbox({
       // filtros aplicados) é lido de volta. Divergiu do escolhido, a
       // vendedora fica sabendo antes de falar (pedido do dono, 14/09/2026).
       const entregue = faixa?.getSettings?.() ?? null;
-      setMicDetalhe(descricaoDaCaptura(entregue));
+      setMicDetalhe(descricaoDaCaptura(entregue, filtroRuido));
+      // o filtro por IA começa a carregar JÁ (124 KB, uma vez por aba): a
+      // pessoa leva segundos falando, e ao soltar o botão ele está pronto
+      if (filtroRuido) aquecerFiltroDeRuido();
       if (!microfoneEntregueConfere(micId, entregue)) {
         setAviso(
           `O navegador entregou outro microfone (${nomeCurtoDoMicrofone(faixa?.label)}). Confira a escolha na engrenagem.`
@@ -2984,7 +3008,21 @@ export function Inbox({
         // taxa, menos abafada a voz — e quanto mais longo o áudio, menor a
         // taxa que cabe).
         const TETO = TETO_AUDIO_BYTES;
-        const convertido = await gravacaoParaWav(original, TETO);
+        // FILTRO DE RUÍDO POR IA (RN-112): com prazo — o que não carregou em
+        // 4 s não segura o áudio, que sai pela cadeia de sempre
+        const filtro = filtroRuido ? await filtroParaOAudio() : null;
+        const convertido = await gravacaoParaWav(original, TETO, {
+          filtro,
+          aoFiltrar: (resultado) => {
+            // o filtro que quebrou num áudio é largado: o próximo carrega outro
+            if (resultado === "falhou") descartarFiltroDeRuido();
+            // LIGADO e não entrou: a pessoa fica sabendo (a barra dizia
+            // "ligado", e dizer ligado para um áudio que saiu sem ele seria
+            // mentir — achado da revisão)
+            const frase = filtroRuido ? avisoDoFiltro(resultado) : null;
+            if (frase) setAviso(frase);
+          },
+        });
         const blob = convertido && convertido.size <= TETO ? convertido : original;
         if (blob.size > TETO) {
           alert("Áudio muito longo — grave em partes menores.");
@@ -4898,6 +4936,8 @@ export function Inbox({
                   onEscolher={escolherMicrofone}
                   onGravar={startRecording}
                   gravando={recording}
+                  filtroDeRuido={filtroRuido}
+                  onFiltroDeRuido={escolherFiltroDeRuido}
                 />
                 <button
                   onClick={() => setNoteMode((v) => !v)}

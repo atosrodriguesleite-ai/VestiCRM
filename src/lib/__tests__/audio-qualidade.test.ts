@@ -479,7 +479,8 @@ describe("a gravação captura em qualidade de gravação", () => {
   it("o teto do envio é a fonte única (tela e conversão falam o mesmo)", () => {
     const tela = ler("src/app/(app)/whatsapp/inbox.tsx");
     expect(tela).toContain("TETO_AUDIO_BYTES");
-    expect(tela).toContain("gravacaoParaWav(original, TETO)");
+    // (o terceiro argumento é o filtro de ruído por IA, RN-112)
+    expect(tela).toContain("gravacaoParaWav(original, TETO, {");
   });
 
   it("o bitrate fica no padrão: subir engorda o webm que vai quando o WAV não cabe", () => {

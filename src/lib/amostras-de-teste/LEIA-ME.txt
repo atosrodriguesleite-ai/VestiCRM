@@ -1,0 +1,5 @@
+Amostras usadas só pelos testes (nunca vão para o navegador).
+
+voz-de-teste.wav — 2,4 s de voz SINTÉTICA (ffmpeg + flite, voz "slt"), mono,
+48 kHz. É a voz sobre a qual o teste do filtro de ruído (RN-112) soma ruídos
+gerados e mede o que o filtro tira. Não é gravação de ninguém.

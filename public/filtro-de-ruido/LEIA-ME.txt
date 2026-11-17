@@ -1,0 +1,10 @@
+Filtro de ruído por IA dos áudios de voz (RN-112).
+
+rnnoise.js e rnnoise.wasm são CÓPIAS, byte a byte, de
+node_modules/@jitsi/rnnoise-wasm/dist (versão fixada no package.json).
+Não edite aqui: ao atualizar o pacote, copie de novo — o teste
+filtro-de-ruido.test.ts (npm test) falha se as cópias divergirem.
+
+RNNoise: (c) Xiph.Org Foundation, Mozilla, Jean-Marc Valin — licença BSD de
+3 cláusulas, em LICENCA-RNNOISE.txt.
+Empacotamento em WebAssembly: Jitsi (8x8) — Apache-2.0, em LICENSE.

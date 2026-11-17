@@ -146,7 +146,9 @@ export function descricaoDaCaptura(
     autoGainControl?: boolean;
     echoCancellation?: boolean;
     sampleRate?: number;
-  } | null | undefined
+  } | null | undefined,
+  /** o filtro por IA da casa (RN-112): entra no áudio DEPOIS da captura */
+  filtroPorIa?: boolean
 ): string {
   if (!entregue) return "";
   const liga = (v: boolean | undefined) => (v === undefined ? "?" : v ? "ligado" : "desligado");
@@ -156,5 +158,7 @@ export function descricaoDaCaptura(
     `cancelamento de eco ${liga(entregue.echoCancellation)}`,
   ];
   if (entregue.sampleRate) partes.push(`${Math.round(entregue.sampleRate / 1000)} kHz`);
+  if (filtroPorIa !== undefined)
+    partes.push(`filtro de ruído forte ${filtroPorIa ? "ligado" : "desligado"}`);
   return partes.join(" · ");
 }
