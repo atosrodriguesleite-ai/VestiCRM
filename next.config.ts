@@ -1,6 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // RN-113 · A VERSÃO DESTE BUILD, escrita no código do navegador e do
+  // servidor: é o commit de onde ele saiu (a Vercel informa no build). A tela
+  // aberta compara a dela com a de `/api/versao` e avisa quando saiu versão
+  // nova. Vazia fora da Vercel — aí o aviso não existe. NUNCA um relógio ou
+  // um sorteio aqui: este arquivo é lido mais de uma vez no mesmo build, e
+  // navegador e servidor sairiam com versões diferentes (aviso eterno).
+  env: {
+    NEXT_PUBLIC_VERSAO_DO_APP: process.env.VERCEL_GIT_COMMIT_SHA ?? "",
+  },
   experimental: {
     // Fluidez de navegação: uma aba visitada há pouco reabre NA HORA,
     // direto do cache do navegador, em vez de esperar o servidor.

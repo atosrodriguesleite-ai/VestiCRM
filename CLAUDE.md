@@ -289,6 +289,53 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   que se conserta é a tela muda. Provado pelo script em jsdom
   (`vigia-da-abertura.test.ts`, o script de verdade com relógio falso) e
   pela bancada no Chromium contra o build de produção local.
+  **RN-113 · A TELA QUE FICOU ABERTA SABE QUE SAIU VERSÃO NOVA — E NUNCA
+  RECARREGA SOZINHA** (`lib/versao-do-app.ts` + `components/aviso-de-versao-nova.tsx`
+  no esqueleto da área logada, rota `/api/versao`, `env` do `next.config.ts`,
+  17/11/2026): relato do dono com o print — o "Filtro de ruído forte"
+  (RN-112) aparecia no acesso dele e não no das vendedoras, *"só está no
+  acesso master"*. **Não existe trava por papel**: a tela da Central é a
+  mesma para todo mundo. O que existe é a aba ABERTA desde antes da entrega:
+  a Central fala com o servidor por pedidos de dados a cada 3 s e nunca
+  troca de página (o Next só recarrega sozinho quando a NAVEGAÇÃO encontra
+  versão nova, RN-066), então o código que roda nela é o do dia em que foi
+  aberta — e o app instalado fica assim por dias. Toda melhoria da Central
+  chegava só em quem recarregava. Agora: (1) **a versão é o commit do
+  build** (`VERCEL_GIT_COMMIT_SHA`, que a Vercel informa no build),
+  escrita no código do navegador e do servidor pelo `env` do
+  `next.config.ts` — **nunca relógio ou sorteio**: o arquivo é lido mais de
+  uma vez no mesmo build e os dois lados sairiam diferentes (aviso eterno);
+  fora da Vercel fica vazia e o aviso não existe; (2) **a tela pergunta**
+  a `/api/versao` (sem banco, `no-store`, só com login — o 401 é "não sei")
+  de 5 em 5 minutos e ao voltar para a aba, **só com a aba à vista**, nunca
+  ao carregar; "não sei" (sem versão, sem rede, sessão vencida) nunca vira
+  aviso; (3) versão do ar diferente da que a tela carregou → a pílula
+  **"Versão nova · Atualizar"** no topo, por cima do cabeçalho e por baixo
+  do menu aberto e das janelas, escondida enquanto o teclado está aberto;
+  (4) **NUNCA recarrega sozinho** (a régua da RN-066): a pessoa pode estar
+  com pedido montado, ficha preenchida ou mensagem digitada. "Atualizar"
+  primeiro DIZ o que se perde (o enviado e salvo fica; o digitado e não
+  enviado não) e só "Atualizar agora" recarrega; **sem internet não
+  recarrega** (o app instalado do iPhone ficaria em branco) e diz; "Depois"
+  tira da frente por 1 hora; (5) **a aba que já recarregou por causa
+  daquela versão não é avisada de novo** (`CHAVE_VERSAO_TENTADA`, por aba)
+  — se a recarga não trouxe a versão, insistir viraria um aviso que ninguém
+  cala. **Limites ditos**: o aviso só alcança quem já carregou uma versão
+  que o tenha (na entrega dele, a equipe recarrega uma vez à mão); redeploy
+  do MESMO commit (trocar uma variável na Vercel) não avisa — o código é o
+  mesmo; e depende de "Automatically expose System Environment Variables"
+  estar ligado no projeto da Vercel (é o padrão; desligado, a versão fica
+  vazia e nada avisa — **e o painel de Saúde DIZ**, `situacaoDoAviso`:
+  "ligado — versão no ar abc1234" ou "DESLIGADO" com o caminho, porque aviso
+  que pode estar desligado em silêncio é pior que aviso nenhum, achado da
+  revisão); o **Modo TV dos Envios** (RN-104) é tela cheia por cima de tudo
+  e cobre a pílula — a TV que fica ligada por dias só pega a versão nova
+  quando alguém a recarrega; janela aberta sem portal (encaminhar, menu da
+  conversa) fica por baixo da pílula; e como aqui cada push é produção, a
+  pílula pode aparecer mais de uma vez no mesmo dia (o "Depois" vale 1 hora).
+  Guardado em `versao-do-app.test.ts` (a régua, a
+  versão do build e a rota) e `aviso-de-versao-nova.test.tsx` (a tela em
+  jsdom: ritmo, nunca sozinho, sem internet, depois).
   **RN-045 · Código de login pelo WhatsApp em aparelho novo**
   (`lib/auth-codigo.ts`, 02/09/2026): segundo fator do jeito deste público —
   nada de app autenticador; o código de 6 dígitos chega no WhatsApp da

@@ -29,6 +29,7 @@ import {
   nomeDaRegiaoAws,
   nomeDaRegiaoVercel,
 } from "@/lib/velocidade-do-banco";
+import { VERSAO_DO_APP, situacaoDoAviso } from "@/lib/versao-do-app";
 import { dateShort, timeShort } from "@/lib/format";
 import {
   diagnosticoLoja,
@@ -83,6 +84,7 @@ export default async function HealthPage() {
   // correndo junto, a medida diria o tempo da fila, não o da distância
   const banco = lerEnderecoDoBanco(process.env.DATABASE_URL);
   const regiaoServidor = process.env.VERCEL_REGION ?? null;
+  const avisoDeVersao = situacaoDoAviso(VERSAO_DO_APP);
   const idaMs = await medirIdaAoBanco(() => db.$queryRaw`SELECT 1`);
   const nucleos = cpus().length || null;
   const conexoes = conexoesPorServidor(banco, nucleos);
@@ -332,6 +334,17 @@ export default async function HealthPage() {
           ))}
         </ul>
       </Card>
+
+      {/* ---- RN-113: o aviso de versão nova está LIGADO neste build? ---- */}
+      <p
+        className={`mb-6 -mt-3 rounded-xl border px-4 py-2.5 text-sm ${
+          avisoDeVersao.ligado
+            ? "border-gray-200 bg-white text-gray-500"
+            : "border-amber-200 bg-amber-50 text-amber-900"
+        }`}
+      >
+        {avisoDeVersao.frase}
+      </p>
 
       {/* ---- Números da plataforma ---- */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">

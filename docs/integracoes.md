@@ -108,6 +108,13 @@ Em produção, `src/lib/env.ts` **recusa iniciar** sem `AUTH_SECRET` forte
 (≥16 caracteres) — proteção contra subir com segredo público. O seed de
 demonstração é bloqueado em produção.
 
+**Variáveis de sistema da Vercel expostas no build** (RN-113): o aviso
+"Versão nova" compara o commit do build (`VERCEL_GIT_COMMIT_SHA`) da tela
+aberta com o do ar. No projeto da Vercel, Settings → Environment Variables →
+**"Automatically expose System Environment Variables"** precisa estar marcado
+(é o padrão). Desmarcado, a versão fica vazia, o aviso não existe e o painel
+`/saude` diz "Aviso de versão nova: DESLIGADO".
+
 ## Infraestrutura própria
 
 - **Servidor Evolution:** VPS Hostinger `srv1853369.hstgr.cloud`, projeto

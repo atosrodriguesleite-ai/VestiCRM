@@ -61,6 +61,7 @@ import { Avatar } from "./ui";
 import { Logo, LogoMark } from "./logo";
 import { NotificationBell } from "./notification-bell";
 import { SinalDeNavegacao, useTrocaDemorada } from "./sinal-de-navegacao";
+import { AvisoDeVersaoNova } from "./aviso-de-versao-nova";
 import Esqueleto from "@/app/(app)/loading";
 import { fileToDataUrl } from "@/lib/upload";
 import { grupoDoMenu, itemVisivel, rotuloDoMenu } from "@/lib/menu-grupos";
@@ -594,6 +595,12 @@ export function AppShell({
           )}
         </button>
       </aside>
+
+      {/* RN-113: "tem versão nova" para quem ficou com a tela aberta. Mora AQUI,
+          na raiz do esqueleto, e não dentro do <main>: lá ele ficaria preso
+          atrás do cabeçalho do celular (o <main> é animado e vira camada
+          própria). Fica em cima da MARCA (enfeite), nunca de um botão */}
+      <AvisoDeVersaoNova recolhido={collapsed} comFaixa={Boolean(user.impersonating)} />
 
       {/* Drawer mobile */}
       {drawerOpen && (
