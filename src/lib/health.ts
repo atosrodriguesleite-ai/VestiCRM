@@ -15,6 +15,7 @@ import { lerHorarioComercial, type HorarioComercial } from "./bi/horario-comerci
 import { registrarQueda, tentarCuraAutomatica, type MotivoDaCura } from "./comm/pulso-do-webhook";
 import {
   decidirPulso,
+  envioQueConta,
   fraseDoWebhookCalado,
   HORAS_ENTRE_CURAS,
   HORAS_REAVISO_CALADO,
@@ -400,6 +401,8 @@ export async function alertarWebhookCalado(
         // o eco ainda calado NA HORA do aviso — não pela foto do começo da
         // rodada: o eco que chegou no meio dela não vira alarme falso
         envioSemEcoDesde: { not: null, lte: new Date(now.getTime() - MINUTOS_SEM_ECO * 60_000) },
+        // só a loja ARMADA alarma (o servidor dela já provou que avisa os envios)
+        ecoDoEnvioVistoEm: { not: null },
         OR: [
           { webhookCaladoAvisadoEm: null },
           { webhookCaladoAvisadoEm: { lt: desde } },
@@ -623,6 +626,7 @@ export async function runWatchdogIfDue(
         evolutionWebhookEventos: true,
         reinicioPedidoEm: true,
         envioSemEcoDesde: true,
+        ecoDoEnvioVistoEm: true,
         autoCuraEm: true,
         ultimoReinicioEm: true,
         webhookCaladoAvisadoEm: true,
@@ -701,29 +705,35 @@ export async function runWatchdogIfDue(
     // 3) conectada, mas MUDA (RN-105): a conexão de pé e nada entrando é a
     // falha mais perigosa — a loja acha que está tudo bem
     await avisarLojasMudas(conectadas, now);
-    // 3b) RN-106 · O TESTE DO ECO: a loja enviou pelo sistema e o eco não
-    // voltou em 12 min — o caminho das mensagens quebrou (o incidente de
-    // 02/11/2026, achado em minutos em vez de um dia). Primeiro a cura
-    // automática; calado de novo depois dela, o alarme.
+    // 3b) RN-106 · O TESTE DO ECO: a loja enviou pelo sistema e o aviso do
+    // servidor (`send.message`) não voltou em 12 min — o caminho servidor →
+    // sistema quebrou. Só na loja ARMADA (o servidor dela já provou que
+    // avisa os envios). Primeiro a cura automática; calado de novo depois
+    // dela, o alarme. O que este teste NÃO vê: o servidor que deixou de
+    // receber do WhatsApp mas segue avisando os envios — esse é do alarme de
+    // loja muda (RN-105).
     const porLoja = new Map(stores.map((s) => [s.companyId, s]));
     for (const { companyId } of conectadas) {
       const s = porLoja.get(companyId);
-      if (!s?.envioSemEcoDesde) continue;
+      // o carimbo só conta na loja ARMADA (o que o código antigo gravou na
+      // janela do deploy, sem a prova, não cura nem alarma)
+      const semEco = s ? envioQueConta(s.envioSemEcoDesde, s.ecoDoEnvioVistoEm) : null;
+      if (!s || !semEco) continue;
       if (reinicioEmCurso(s.reinicioPedidoEm, now)) continue;
       const decisao = decidirPulso(
         {
-          envioSemEcoDesde: s.envioSemEcoDesde,
+          envioSemEcoDesde: semEco,
           curaEm: s.autoCuraEm,
           reiniciadoEm: s.ultimoReinicioEm,
           avisadoEm: s.webhookCaladoAvisadoEm,
         },
         now
       );
-      if (decisao === "curar") ecoParaCurar.push({ companyId, desde: s.envioSemEcoDesde });
+      if (decisao === "curar") ecoParaCurar.push({ companyId, desde: semEco });
       else if (decisao === "avisar")
         await alertarWebhookCalado(
           companyId,
-          s.envioSemEcoDesde,
+          semEco,
           now,
           // "avisar" vem da vez da cura gasta; só diz que reiniciou se houve
           // reinício ACEITO nas últimas horas (a 401 gasta a vez sem reiniciar)

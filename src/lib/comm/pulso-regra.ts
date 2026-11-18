@@ -6,13 +6,24 @@
  * o sistema (webhook). O alarme de loja muda (RN-105) só tocava depois de um
  * dia inteiro de atendimento — um dia de clientes sem resposta.
  *
- * O TESTE DO ECO: toda mensagem que a loja envia PELO SISTEMA volta pelo
- * webhook em segundos, como o "eco" do próprio WhatsApp (`messages.upsert`
- * com fromMe — é dele que vive o resgate da bolha, RN-048, e o eco do robô,
- * RN-080). Então o envio que saiu e cujo eco não voltou é a prova de que o
- * caminho das mensagens quebrou — sem mandar nada a mais ao WhatsApp. O
- * carimbo `envioSemEcoDesde` guarda o PRIMEIRO envio ainda sem eco; qualquer
- * mensagem que chega pelo webhook o apaga.
+ * O TESTE DO ECO: toda mensagem que a loja envia PELO SISTEMA é avisada de
+ * volta pelo servidor em segundos — o aviso `send.message`. Então o envio
+ * que saiu e cujo aviso não voltou é a prova de que o caminho servidor →
+ * sistema quebrou — sem mandar nada a mais ao WhatsApp. O carimbo
+ * `envioSemEcoDesde` guarda o PRIMEIRO envio ainda sem eco; qualquer aviso
+ * de mensagem que chega pelo webhook (o eco ou a mensagem de uma cliente) o
+ * apaga.
+ *
+ * O ERRO DE 03/11 a 18/11/2026: a primeira versão esperava o eco como
+ * `messages.upsert` com fromMe. O servidor Evolution NÃO manda isso para o
+ * que sai pela API (`emitOwnEvents: false`; conferido no código-fonte, versão
+ * 2.3.7) — só para o que a loja manda pelo CELULAR. O eco nunca vinha: toda
+ * mensagem enviada pelo sistema sem uma cliente escrever nos 12 min seguintes
+ * virava "WhatsApp parou de entregar", com a conexão boa sendo reiniciada à
+ * toa (a cura automática). Duas lições que viraram régua: o eco é o aviso
+ * que o servidor DE FATO manda, e o teste só ARMA na loja em que esse aviso
+ * já foi visto (`ecoArmado`) — suposição sobre servidor de terceiro não
+ * dispara alarme nem reinício sem prova.
  */
 
 /** Envio sem eco há este tanto = o webhook parou (o eco leva segundos). */
@@ -32,17 +43,50 @@ export const MS_FOLGA_DO_RELOGIO = 5_000;
 /**
  * O sinal do webhook não é regravado a cada aviso (o webhook recebe dezenas
  * por minuto): no máximo uma vez neste intervalo quando não há envio
- * esperando. TEM que ser no máximo a folga do relógio — o eco que chega
+ * esperando. TEM que ser MENOR que a folga do relógio — o eco que chega
  * antes da resposta do envio e cai nesta janela não regrava o sinal, e é a
  * folga que impede o envio de se carimbar "sem eco" por cima dele (com um
- * minuto aqui, o eco engolido virava alarme falso, achado da revisão).
+ * minuto aqui, o eco engolido virava alarme falso, achado da revisão). A
+ * diferença entre as duas (3 s) é o que sobra para os relógios das duas
+ * máquinas discordarem: iguais, não sobrava nada (achado da revisão de
+ * 18/11/2026, quando o eco passou a existir de verdade).
  */
-export const MS_REGRAVAR_SINAL = MS_FOLGA_DO_RELOGIO;
+export const MS_REGRAVAR_SINAL = 2_000;
 /** O sinal mais velho que isto não diz que o eco "está voltando" — só que há tempo não chega nada. */
 export const HORAS_SINAL_FRESCO = 6;
 
 const MS_MIN = 60_000;
 const MS_HORA = 60 * MS_MIN;
+
+/**
+ * O TESTE SÓ VALE ONDE FOI PROVADO: a loja está armada quando o servidor dela
+ * já mandou, alguma vez, o aviso de um envio (`ecoDoEnvioVistoEm`). Sem essa
+ * prova o envio nem é carimbado — e o carimbo que já existir (gravado pelo
+ * código antigo na janela do deploy) não conta.
+ */
+export function ecoArmado(ecoDoEnvioVistoEm: Date | null | undefined): boolean {
+  return !!ecoDoEnvioVistoEm;
+}
+
+/**
+ * QUAIS AVISOS DO SERVIDOR CONTAM COMO SINAL: a mensagem de uma cliente (ou a
+ * que a loja mandou pelo celular) e o eco de um envio feito pelo sistema.
+ * Recibo, contato e conexão não contam — um caminho que ainda entrega recibos
+ * mas perdeu as mensagens não pode passar por vivo. Só o eco ARMA o teste.
+ */
+export function sinalDoPulso(evento: string): { conta: boolean; ecoDeEnvio: boolean } {
+  if (evento === "send.message") return { conta: true, ecoDeEnvio: true };
+  if (evento === "messages.upsert") return { conta: true, ecoDeEnvio: false };
+  return { conta: false, ecoDeEnvio: false };
+}
+
+/** O envio sem eco que CONTA: só o da loja armada. */
+export function envioQueConta(
+  envioSemEcoDesde: Date | null | undefined,
+  ecoDoEnvioVistoEm: Date | null | undefined
+): Date | null {
+  return ecoArmado(ecoDoEnvioVistoEm) ? (envioSemEcoDesde ?? null) : null;
+}
 
 /** O webhook está calado? Envio sem eco há `MINUTOS_SEM_ECO` ou mais. */
 export function webhookCalado(envioSemEcoDesde: Date | null | undefined, agora = new Date()): boolean {
@@ -160,17 +204,48 @@ export function motivoDaQueda(codigo: unknown): string {
   }
 }
 
-export type LeituraDoPulso = { tom: "ok" | "esperando" | "calado" | "sem-dado"; texto: string };
+export type LeituraDoPulso = { tom: "ok" | "esperando" | "atencao" | "calado" | "sem-dado"; texto: string };
 
 /**
  * O pulso em uma frase, para o painel de Saúde: "o eco está voltando" é a
  * resposta a "está FUNCIONANDO?", que o "Conectado" sozinho não dá.
  */
 export function leituraDoPulso(
-  s: { conectado: boolean; envioSemEcoDesde: Date | null; ultimoSinal: Date | null; reiniciadoEm?: Date | null },
+  s: {
+    conectado: boolean;
+    envioSemEcoDesde: Date | null;
+    ultimoSinal: Date | null;
+    reiniciadoEm?: Date | null;
+    /** o servidor desta loja já mandou o aviso de um envio? (`ecoArmado`) */
+    armado: boolean;
+    /**
+     * loja DESARMADA com a assinatura do aviso de envio confirmada: desde
+     * quando um envio espera a PRIMEIRA confirmação do servidor
+     */
+    envioSemProvaDesde?: Date | null;
+  },
   agora = new Date()
 ): LeituraDoPulso {
   if (!s.conectado) return { tom: "sem-dado", texto: "Pulso: sem conexão." };
+  // sem a prova de que o servidor avisa os envios, o teste não diz nada —
+  // nem "calado", nem "voltando" (dizer verde aqui seria afirmar sem medir)
+  if (!s.armado) {
+    // desarmado NÃO pode ser sinônimo de calado para sempre: a loja que
+    // envia pelo sistema, com a assinatura do aviso confirmada, e nunca
+    // recebe a confirmação aparece em ATENÇÃO aqui — sem alarme e sem
+    // reinício (não há prova de que este servidor avisa), mas à vista
+    // (achado da revisão: webhook quebrado desde o começo ficava invisível)
+    if (s.envioSemProvaDesde && webhookCalado(s.envioSemProvaDesde, agora))
+      return {
+        tom: "atencao",
+        texto: `Pulso: a loja enviou pelo sistema há ${minutosSemEco(s.envioSemProvaDesde, agora)} min e o servidor nunca confirmou um envio desta loja — se as mensagens das clientes também não entram, toque em "Reiniciar conexão" (reaplica os avisos).`,
+      };
+    return {
+      tom: "sem-dado",
+      texto:
+        "Pulso: teste do eco ainda desarmado — o servidor ainda não confirmou nenhum envio feito pelo sistema nesta loja (arma sozinho no primeiro).",
+    };
+  }
   if (s.envioSemEcoDesde && provaAntesDoReinicio(s.envioSemEcoDesde, s.reiniciadoEm))
     return {
       tom: "esperando",
@@ -190,9 +265,11 @@ export function leituraDoPulso(
   if (horas >= HORAS_SINAL_FRESCO)
     return {
       tom: "sem-dado",
-      texto: `Pulso: nada chega pelo WhatsApp há ${Math.floor(horas)} h e não houve envio pelo sistema para conferir o eco.`,
+      texto: `Pulso: nenhum aviso de mensagem chega do servidor há ${Math.floor(horas)} h e não houve envio pelo sistema para conferir o eco.`,
     };
-  return { tom: "ok", texto: "Pulso: o eco dos envios está voltando." };
+  // diz o que PROVA: os avisos do servidor chegam ao sistema. Não prova que
+  // o servidor está recebendo do WhatsApp — isso é o alarme de loja muda
+  return { tom: "ok", texto: "Pulso: os avisos do servidor estão chegando ao sistema." };
 }
 
 /**

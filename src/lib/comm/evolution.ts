@@ -221,6 +221,14 @@ export const WEBHOOK_EVENTS = [
   // 31/07/2026), mesmo com o nome disponível no servidor.
   "CONTACTS_UPSERT",
   "CONTACTS_UPDATE",
+  // O ECO DO ENVIO (RN-106, 18/11/2026): a mensagem enviada PELO SISTEMA não
+  // volta como MESSAGES_UPSERT — o servidor liga o WhatsApp com
+  // `emitOwnEvents: false` e avisa o envio SÓ por este evento (conferido no
+  // código-fonte do Evolution 2.3.7). O teste do eco esperava o upsert, que
+  // nunca vinha: alarme falso de "WhatsApp parou" e reinício à toa de conexão
+  // boa. Só o pulso lê este aviso — ele não vira bolha (a bolha do envio já
+  // existe).
+  "SEND_MESSAGE",
 ] as const;
 
 /**

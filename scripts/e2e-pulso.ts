@@ -74,11 +74,26 @@ async function main() {
     if (!r.ok) throw new Error(`webhook respondeu ${r.status}`);
   };
   let n = 0;
+  // O ECO DE VERDADE: o servidor Evolution avisa o envio feito pela API com
+  // `send.message` — NÃO com `messages.upsert` (`emitOwnEvents: false`, lido
+  // no código-fonte 2.3.7). A primeira versão desta prova fingia o eco como
+  // upsert, o formato SUPOSTO: passou aqui e falhou em produção (alarme falso
+  // de 03 a 18/11/2026).
   const eco = () =>
-    webhook("messages.upsert", {
+    webhook("send.message", {
       key: { remoteJid: "5511977776666@s.whatsapp.net", fromMe: true, id: `ECO${marca}${n++}` },
       message: { conversation: `eco ${n}` },
       messageType: "conversation",
+      messageTimestamp: Math.floor(Date.now() / 1000),
+      source: "unknown",
+    });
+  const clienteEscreve = () =>
+    webhook("messages.upsert", {
+      key: { remoteJid: "5511966665555@s.whatsapp.net", fromMe: false, id: `CLI${marca}${n++}` },
+      pushName: "Cliente Pulso",
+      message: { conversation: `oi ${n}` },
+      messageType: "conversation",
+      messageTimestamp: Math.floor(Date.now() / 1000),
     });
   const vigiaAgora = async () => {
     await db.systemHealth.upsert({ where: { id: "main" }, create: { id: "main" }, update: { watchdogRunAt: null } });
@@ -86,6 +101,51 @@ async function main() {
   };
 
   try {
+    console.log("\n0) O ALARME FALSO de 03–18/11: a loja cujo servidor nunca avisou um envio NÃO é testada");
+    await marcarEnvioSemEco(companyId, new Date());
+    conferir((await cs()).envioSemEcoDesde === null, "loja desarmada: o envio nem fica esperando eco");
+    // o carimbo que o código ANTIGO gravou (na janela do deploy), há 20 min
+    await db.commSettings.update({
+      where: { companyId },
+      data: { envioSemEcoDesde: new Date(Date.now() - 20 * 60_000), autoCuraEm: null, webhookCaladoAvisadoEm: null },
+    });
+    chamadas.length = 0;
+    await vigiaAgora();
+    conferir(!chamadas.some((c) => c.includes("/instance/restart/")), "desarmada: o vigia NÃO reinicia a conexão boa");
+    conferir(
+      (await db.notification.count({ where: { companyId, userId: admin.id } })) === 0,
+      "desarmada: nenhum alarme de 'WhatsApp parou de entregar'"
+    );
+    conferir((await cs()).autoCuraEm === null, "…e a vez da cura não é gasta");
+    await clienteEscreve();
+    await esperar(800);
+    conferir((await cs()).envioSemEcoDesde === null, "a mensagem de uma cliente apaga a espera");
+    conferir((await cs()).ecoDoEnvioVistoEm === null, "…mas não ARMA o teste (ela não prova que o servidor avisa os envios)");
+    conferir(
+      !!(await cs()).evolutionWebhookEventos?.includes("SEND_MESSAGE"),
+      "a loja foi reassinada de carona, agora com o aviso de envio"
+    );
+    // assinatura confirmada, ainda sem prova: o envio é anotado SÓ para o
+    // painel ("enviou e o servidor nunca confirmou") — nunca cura nem alarma
+    await db.commSettings.update({ where: { companyId }, data: { webhookUltimoSinalEm: new Date(Date.now() - 60_000) } });
+    await marcarEnvioSemEco(companyId, new Date());
+    conferir(!!(await cs()).envioSemEcoDesde, "desarmada com a assinatura confirmada: o envio fica anotado para o painel");
+    await db.commSettings.update({ where: { companyId }, data: { envioSemEcoDesde: new Date(Date.now() - 20 * 60_000) } });
+    chamadas.length = 0;
+    await vigiaAgora();
+    conferir(!chamadas.some((c) => c.includes("/instance/restart/")), "…e o vigia continua sem reiniciar");
+    conferir(
+      (await db.notification.count({ where: { companyId, userId: admin.id } })) === 0,
+      "…e sem alarmar"
+    );
+    await eco();
+    await esperar(800);
+    conferir(!!(await cs()).ecoDoEnvioVistoEm, "o primeiro `send.message` do servidor ARMA o teste nesta loja");
+    conferir((await cs()).envioSemEcoDesde === null, "…e apaga a anotação que estava esperando");
+    // o eco acabou de chegar: o envio dos próximos 5 s estaria coberto por
+    // ele (a folga do relógio) — a prova seguinte começa com o sinal antigo
+    await db.commSettings.update({ where: { companyId }, data: { webhookUltimoSinalEm: new Date(Date.now() - 60_000) } });
+
     console.log("\n1) Envio e depois o eco (a ordem comum)");
     await marcarEnvioSemEco(companyId, new Date());
     conferir(!!(await cs()).envioSemEcoDesde, "o envio fica esperando o eco");

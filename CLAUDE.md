@@ -3627,17 +3627,57 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   Quatro peças (a quinta, a sonda periódica da sessão, foi **recusada pelo
   dono**: mandar sinal ao WhatsApp a cada 15 min tem risco de bloqueio que
   ninguém sabe medir): (1) **o teste do eco**: todo envio pelo sistema
-  (Evolution) volta pelo webhook em segundos — o eco que já sustenta o
-  resgate da bolha (RN-048) e o eco do robô (RN-080). O envio que SAIU
+  (Evolution) é avisado de volta pelo servidor em segundos — o aviso
+  **`send.message`**. O envio que SAIU
   carimba `CommSettings.envioSemEcoDesde` (o PRIMEIRO sem eco, com o
-  instante de ANTES do pedido) e qualquer `messages.upsert` que chega pelo
-  webhook o apaga e carimba `webhookUltimoSinalEm` (regravado no máximo a
+  instante de ANTES do pedido) e qualquer aviso de mensagem que chega pelo
+  webhook — o eco (`send.message`) ou a mensagem de uma cliente
+  (`messages.upsert`) — o apaga e carimba `webhookUltimoSinalEm` (regravado no máximo a
   cada 5 s quando não há envio esperando — a regravação TEM que caber na
   folga do relógio, senão o eco engolido virava alarme falso, achado da
   revisão; a gravação vai depois da resposta, com a hora em que o aviso
-  chegou, e só apaga o envio que essa chegada pode cobrir). Só `messages.upsert` conta:
+  chegou, e só apaga o envio que essa chegada pode cobrir). Só esses dois avisos contam:
   um caminho que entrega recibos mas perdeu as mensagens não passa por
-  vivo. **Os dois carimbos são UMA instrução SQL cada, condicionada no
+  vivo. **O ECO É `send.message`, E O TESTE SÓ ARMA COM PROVA** (18/11/2026,
+  relato do dono com o print: *"fico recebendo notificações que o WhatsApp
+  caiu, mas mando mensagem de teste e dá certo"*): a primeira versão
+  esperava o eco como `messages.upsert` com `fromMe` — que o servidor
+  Evolution **não manda** para o que sai pela API (ele liga o WhatsApp com
+  `emitOwnEvents: false` e avisa o envio só por `send.message`; conferido no
+  código-fonte, versão 2.3.7; upsert com `fromMe` é só o que a loja manda
+  pelo CELULAR). O eco nunca vinha: de 03 a 18/11, toda mensagem enviada
+  pelo sistema sem uma cliente escrever nos 12 min seguintes virava "🔇
+  WhatsApp parou de entregar" — e, pior, **a cura automática reiniciava uma
+  conexão boa**, até uma vez a cada 6 h por loja. A prova ponta a ponta
+  tinha passado porque FINGIA o eco no formato suposto (a lição da casa:
+  guarda que descreve a suposição protege o erro). Agora: `SEND_MESSAGE`
+  está na assinatura do webhook (as lojas conectadas são reassinadas
+  sozinhas, `garantir-webhook`), o webhook o conta como sinal sem virar
+  bolha, e **o teste só ARMA na loja cujo servidor já mandou esse aviso
+  alguma vez** (`CommSettings.ecoDoEnvioVistoEm`, `ecoArmado` — a mensagem
+  de cliente apaga a espera mas NÃO arma): desarmada, o carimbo não conta
+  (`envioQueConta`, no vigia e no painel), a cura não toma a vez e o alarme
+  não sai; o painel diz "teste do eco ainda desarmado" em vez de pintar
+  verde ou vermelho sem medir. **A prova é da CONEXÃO**: desconectar,
+  conectar de novo e recriar a sessão desarmam (e pedem a reassinatura) — a
+  prova velha deixaria o alarme falso voltar numa conexão que não avisa.
+  **Desarmado não é calado para sempre** (achados da revisão): com a
+  assinatura do aviso CONFIRMADA e nenhuma confirmação recebida, o envio é
+  anotado só para o painel de Saúde dizer, em ATENÇÃO, "a loja enviou há N
+  min e o servidor nunca confirmou um envio dela" — sem alarme e sem
+  reinício; o verde do pulso passou a dizer o que prova ("os avisos do
+  servidor estão chegando"); a janela de regravação do sinal (2 s) ficou
+  MENOR que a folga do relógio (5 s) — iguais, não sobrava margem para os
+  relógios das duas máquinas discordarem; e os dois avisos passam por UMA
+  instrução SQL (`sinalDoPulso` diz quais contam). A migração
+  `20261118100000` limpou os carimbos do teste errado. **Limites ditos**: o
+  eco prova o caminho servidor → sistema (o webhook), não a ligação
+  WhatsApp → servidor — o servidor que deixa de RECEBER mas segue avisando
+  os envios só aparece no alarme de loja muda (RN-105); e o resgate do
+  "confirmando a entrega" (RN-048) e a adoção do eco do robô (RN-080) ainda
+  esperam o `messages.upsert`, que não vem para o que sai pela API — o
+  envio que estoura o tempo segue fechando por prazo ("não deu para
+  confirmar"), pendência anotada. **Os dois carimbos são UMA instrução SQL cada, condicionada no
   banco** — o eco pode chegar ANTES da resposta do envio, e ler para depois
   gravar carimbava "sem eco" por cima do eco que já tinha chegado; o envio
   coberto por sinal de até 5 s antes do seu começo não carimba (folga de
@@ -5594,6 +5634,14 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   teclado no computador — decidir antes). Botões do dono na Vercel:
   Firewall (modo "challenge" barra o navegador de dentro do WhatsApp) e Skew
   Protection (RN-066).
+- 🟡 **O eco do envio pela API é `send.message`, não `messages.upsert`**
+  (18/11/2026, achado ao consertar o alarme falso da RN-106): o pulso já lê
+  o aviso certo, mas o resgate do "confirmando a entrega" (RN-048) e a
+  adoção do eco do robô (RN-080) ainda esperam o upsert — o envio que
+  estoura o tempo e FOI entregue vira "não deu para confirmar" depois de 3
+  min, e a vendedora pode reenviar. Próxima entrega: o `send.message`
+  alimentar a mesma adoção da bolha (por id e por texto), com prova contra
+  aviso de verdade do servidor — não fingido.
 - WhatsApp/Evolution: operacional em produção (conexão, tempo real, mídia).
   **Pendente**: ligar `DATABASE_SAVE_DATA_HISTORIC/NEW_MESSAGE/CHATS/CONTACTS=true`
   no compose do servidor Evolution (Hostinger, via Editor .yaml) e reconectar

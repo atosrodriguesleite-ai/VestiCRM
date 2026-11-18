@@ -62,7 +62,13 @@ export async function POST(req: Request) {
       const token = crypto.randomBytes(24).toString("hex");
       settings = await db.commSettings.update({
         where: { companyId: user.companyId },
-        data: { evolutionInstance: instance, evolutionWebhookToken: token },
+        // conexão nova: o teste do eco arma de novo com a prova DELA (RN-106)
+        data: {
+          evolutionInstance: instance,
+          evolutionWebhookToken: token,
+          ecoDoEnvioVistoEm: null,
+          evolutionWebhookEventos: null,
+        },
       });
     }
 
@@ -139,7 +145,14 @@ export async function POST(req: Request) {
         // em que estava reconectando, e a queda falsa ia para o histórico)
         await db.commSettings.update({
           where: { companyId: user.companyId },
-          data: { evolutionStatus: "DESCONECTADO", reinicioPedidoEm: new Date() },
+          data: {
+            evolutionStatus: "DESCONECTADO",
+            reinicioPedidoEm: new Date(),
+            // a sessão recriada prova de novo que avisa os envios, e é reassinada
+            ecoDoEnvioVistoEm: null,
+            evolutionWebhookEventos: null,
+            envioSemEcoDesde: null,
+          },
         });
         // tetos curtos: a cadeia inteira cabe no tempo da rota
         await evoLogout(settings.evolutionInstance!, TETO_DA_RECRIACAO_MS).catch(() => {});

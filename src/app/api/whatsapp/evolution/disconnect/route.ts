@@ -27,6 +27,11 @@ export async function POST() {
         evolutionWebhookToken: null,
         // RN-106: o envio sem eco desta conexão não vale para a próxima
         envioSemEcoDesde: null,
+        // …e a prova de que o servidor avisa os envios é DESTA conexão: a
+        // próxima arma de novo no primeiro eco dela, e é reassinada (achado
+        // da revisão — a prova velha deixaria o alarme falso voltar)
+        ecoDoEnvioVistoEm: null,
+        evolutionWebhookEventos: null,
         ...(settings?.activeProvider === "EVOLUTION" ? { activeProvider: "MOCK" } : {}),
       },
     });

@@ -231,6 +231,9 @@ describe("Conectar: o servidor que acha a sessão 'open' não entrega QR — o b
     evo.logout.mockImplementation(async () => {
       // cortada aqui, a tela mostraria o Conectar — nunca "Conectado"
       expect(estado.updates.at(-1)?.data.evolutionStatus).toBe("DESCONECTADO");
+      // RN-106: a sessão recriada desarma o teste do eco (a prova é da
+      // conexão) e pede a reassinatura dos avisos
+      expect(estado.updates.at(-1)?.data).toMatchObject({ ecoDoEnvioVistoEm: null, evolutionWebhookEventos: null });
       return { ok: true, status: 200, data: null };
     });
     const res = await rodar(CONECTAR(pedido({})));

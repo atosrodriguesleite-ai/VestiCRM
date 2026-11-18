@@ -1207,6 +1207,10 @@ model CommSettings {
   // caminho das mensagens quebrou (o incidente de 02/11/2026)
   webhookUltimoSinalEm  DateTime?
   envioSemEcoDesde      DateTime?
+  // o teste do eco só ARMA onde foi provado: a última vez que o servidor
+  // desta loja mandou o aviso de um envio feito pelo sistema (`send.message`).
+  // Nulo = o teste não carimba, não reinicia e não alarma (18/11/2026)
+  ecoDoEnvioVistoEm     DateTime?
   // a última cura AUTOMÁTICA (no máximo uma vez a cada 6 h por loja; a queda
   // que só volta com QR também a carimba, para o vigia não reiniciá-la) e o
   // alarme do webhook calado, uma vez por episódio

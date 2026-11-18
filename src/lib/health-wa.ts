@@ -36,6 +36,11 @@ export type EstadoLoja = {
   envioSemEcoDesde?: Date | null;
   /** RN-106: o último reinício ACEITO pelo servidor (automático ou pelo botão) */
   reiniciadoEm?: Date | null;
+  /**
+   * RN-106: loja com o teste do eco DESARMADO e a assinatura do aviso de
+   * envio confirmada — desde quando um envio espera a primeira confirmação
+   */
+  envioSemProvaDesde?: Date | null;
 };
 
 export type Diagnostico = { nivel: NivelSaude; problemas: string[] };
@@ -81,6 +86,15 @@ export function diagnosticoLoja(estado: EstadoLoja, agora = new Date()): Diagnos
       );
       pior("CRITICO");
     }
+  }
+
+  // o servidor NUNCA confirmou um envio desta loja e ela enviou há tempo:
+  // sem alarme (não há prova de que este servidor avisa), mas à vista
+  if (estado.envioSemProvaDesde && webhookCalado(estado.envioSemProvaDesde, agora)) {
+    problemas.push(
+      `A loja enviou pelo sistema há ${minutosSemEco(estado.envioSemProvaDesde, agora)} min e o servidor nunca confirmou um envio dela — se as mensagens das clientes também não entram, reinicie a conexão.`
+    );
+    pior("ATENCAO");
   }
 
   if (!estado.ultimaRecebida) {

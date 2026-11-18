@@ -39,7 +39,7 @@ import {
   MINUTOS_PRESA,
   type NivelSaude,
 } from "@/lib/health-wa";
-import { leituraDoPulso } from "@/lib/comm/pulso-regra";
+import { ecoArmado, envioQueConta, leituraDoPulso } from "@/lib/comm/pulso-regra";
 
 /** RN-106: o que entra no histórico de quedas e consertos do WhatsApp. */
 const TIPOS_DO_HISTORICO = ["wa.conexao.queda", "wa.conexao.cura-automatica", "wa.webhook.calado"];
@@ -111,6 +111,7 @@ export default async function HealthPage() {
         evolutionPhone: true,
         evolutionDownSince: true,
         envioSemEcoDesde: true,
+        ecoDoEnvioVistoEm: true,
         webhookUltimoSinalEm: true,
         ultimoReinicioEm: true,
       },
@@ -202,6 +203,10 @@ export default async function HealthPage() {
       const t = trafegoBy.get(s.companyId);
       const conectado = s.evolutionStatus === "CONECTADO";
       const ultimaRecebida = t?.ultima_recebida ?? null;
+      // RN-106: o envio sem eco só conta na loja em que o teste está armado
+      const semEco = envioQueConta(s.envioSemEcoDesde, s.ecoDoEnvioVistoEm);
+      // …e, na desarmada, o mesmo carimbo só vira ATENÇÃO no painel
+      const semProva = ecoArmado(s.ecoDoEnvioVistoEm) ? null : s.envioSemEcoDesde;
       const diag = diagnosticoLoja(
         {
           conectado,
@@ -209,13 +214,21 @@ export default async function HealthPage() {
           presas: n(t?.presas),
           falhas24: n(t?.falhas24),
           jaTeveTrafego: n(t?.total_recebidas) > 0,
-          envioSemEcoDesde: s.envioSemEcoDesde,
+          envioSemEcoDesde: semEco,
           reiniciadoEm: s.ultimoReinicioEm,
+          envioSemProvaDesde: semProva,
         },
         agora
       );
       const pulso = leituraDoPulso(
-        { conectado, envioSemEcoDesde: s.envioSemEcoDesde, ultimoSinal: s.webhookUltimoSinalEm, reiniciadoEm: s.ultimoReinicioEm },
+        {
+          conectado,
+          envioSemEcoDesde: semEco,
+          ultimoSinal: s.webhookUltimoSinalEm,
+          reiniciadoEm: s.ultimoReinicioEm,
+          armado: ecoArmado(s.ecoDoEnvioVistoEm),
+          envioSemProvaDesde: semProva,
+        },
         agora
       );
       return {
@@ -486,7 +499,9 @@ export default async function HealthPage() {
                         ? "text-emerald-700"
                         : l.pulso.tom === "calado"
                           ? "font-semibold text-rose-600"
-                          : "text-gray-500"
+                          : l.pulso.tom === "atencao"
+                            ? "font-medium text-amber-700"
+                            : "text-gray-500"
                     }`}
                   >
                     {l.pulso.texto}

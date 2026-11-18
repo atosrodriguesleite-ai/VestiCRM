@@ -18,21 +18,37 @@ import { reinicioEmCurso } from "./conexao-fechada";
  */
 
 /**
- * Chegou mensagem pelo webhook (`agora` = a hora em que ela CHEGOU): o
+ * Chegou aviso de mensagem pelo webhook (`agora` = a hora em que ele CHEGOU)
+ * — a mensagem de uma cliente (`messages.upsert`) ou o ECO de um envio feito
+ * pelo sistema (`send.message`, `ecoDeEnvio`): o
  * caminho está vivo. Apaga o "envio sem eco" e anota a hora do sinal —
  * regravando no máximo a cada `MS_REGRAVAR_SINAL` quando não há envio
  * esperando. Só apaga o envio que pode ter sido coberto por esta chegada (o
  * envio que começou DEPOIS dela não tem o eco aqui — a gravação pode correr
- * depois da resposta do webhook). Nunca lança: o pulso não pode derrubar a
- * mensagem da cliente.
+ * depois da resposta do webhook). O ECO também ARMA o teste nesta loja
+ * (`ecoDoEnvioVistoEm`): é a prova de que o servidor dela avisa os envios —
+ * sem essa prova o teste não carimba nem alarma (`ecoArmado`). Nunca lança:
+ * o pulso não pode derrubar a mensagem da cliente.
  */
-export async function marcarSinalDoWebhook(companyId: string, agora = new Date()): Promise<void> {
+export async function marcarSinalDoWebhook(
+  companyId: string,
+  agora = new Date(),
+  opts: { ecoDeEnvio?: boolean } = {}
+): Promise<void> {
   const corte = new Date(agora.getTime() - MS_REGRAVAR_SINAL);
   const cobreAte = new Date(agora.getTime() + MS_FOLGA_DO_RELOGIO);
+  // UMA instrução para os dois avisos (a regra do que a chegada cobre não
+  // pode existir em dois lugares): o eco, além do sinal, ARMA o teste — e o
+  // PRIMEIRO eco da loja grava sempre, sem esperar a janela de regravação
+  const eco = opts.ecoDeEnvio === true;
   await db
     .$executeRaw`
       UPDATE "CommSettings"
       SET "webhookUltimoSinalEm" = GREATEST(COALESCE("webhookUltimoSinalEm", ${agora}), ${agora}),
+          "ecoDoEnvioVistoEm" = CASE
+            WHEN ${eco} THEN GREATEST(COALESCE("ecoDoEnvioVistoEm", ${agora}), ${agora})
+            ELSE "ecoDoEnvioVistoEm"
+          END,
           "envioSemEcoDesde" = CASE
             WHEN "envioSemEcoDesde" IS NOT NULL AND "envioSemEcoDesde" > ${cobreAte} THEN "envioSemEcoDesde"
             ELSE NULL
@@ -40,7 +56,8 @@ export async function marcarSinalDoWebhook(companyId: string, agora = new Date()
       WHERE "companyId" = ${companyId}
         AND ("webhookUltimoSinalEm" IS NULL
           OR "webhookUltimoSinalEm" < ${corte}
-          OR "envioSemEcoDesde" IS NOT NULL)`
+          OR "envioSemEcoDesde" IS NOT NULL
+          OR (${eco} AND "ecoDoEnvioVistoEm" IS NULL))`
     .catch(() => {});
 }
 
@@ -51,7 +68,12 @@ export async function marcarSinalDoWebhook(companyId: string, agora = new Date()
  * que decide o alarme) — salvo quando o carimbado é de ANTES do último
  * reinício: aí este envio é a prova nova (RN-106, `provaAntesDoReinicio`). E
  * não carimba quando já chegou sinal depois do começo do envio (o eco chegou
- * antes da resposta — a corrida comum).
+ * antes da resposta — a corrida comum). O carimbo só VALE na loja armada
+ * (`envioQueConta`: sem o servidor dela ter mandado, alguma vez, o aviso de
+ * um envio, esperar o eco seria esperar o que talvez nunca venha — o alarme
+ * falso de 03–18/11/2026). Na desarmada com a assinatura do aviso CONFIRMADA
+ * ele é gravado só para o painel de Saúde dizer "enviou e o servidor nunca
+ * confirmou" — nunca cura nem alarma.
  */
 export async function marcarEnvioSemEco(companyId: string, inicio: Date): Promise<void> {
   const cobertoDesde = new Date(inicio.getTime() - MS_FOLGA_DO_RELOGIO);
@@ -60,6 +82,7 @@ export async function marcarEnvioSemEco(companyId: string, inicio: Date): Promis
       UPDATE "CommSettings"
       SET "envioSemEcoDesde" = ${inicio}
       WHERE "companyId" = ${companyId}
+        AND ("ecoDoEnvioVistoEm" IS NOT NULL OR "evolutionWebhookEventos" LIKE '%SEND_MESSAGE%')
         AND ("envioSemEcoDesde" IS NULL
           OR ("ultimoReinicioEm" IS NOT NULL AND "envioSemEcoDesde" <= "ultimoReinicioEm" AND "ultimoReinicioEm" < ${inicio}))
         AND ("webhookUltimoSinalEm" IS NULL OR "webhookUltimoSinalEm" < ${cobertoDesde})`
@@ -131,8 +154,13 @@ export async function tentarCuraAutomatica(
         // começo da rodada: o eco que chegou no meio dela (cada leitura de
         // loja pode levar 15 s) não pode reiniciar uma conexão que voltou a
         // entregar (achado da revisão)
+        // …e só na loja ARMADA (`ecoArmado`): reiniciar uma conexão boa por
+        // causa de um eco que o servidor nunca mandou foi o erro de 03–18/11
         ...(motivo === "webhook-calado"
-          ? { envioSemEcoDesde: { lte: new Date(agora.getTime() - MINUTOS_SEM_ECO * 60_000) } }
+          ? {
+              envioSemEcoDesde: { lte: new Date(agora.getTime() - MINUTOS_SEM_ECO * 60_000) },
+              ecoDoEnvioVistoEm: { not: null },
+            }
           : {}),
       },
       // a prova de antes da cura NÃO é apagada: ela passa a ser "de antes do

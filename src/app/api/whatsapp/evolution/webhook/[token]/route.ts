@@ -13,6 +13,7 @@ import {
 import { findCustomerByPhone, nomeProvisorio, normalizePhone } from "@/lib/intake";
 import { alertWhatsappDown, cuidarDaQuedaDeRede, logServerError } from "@/lib/health";
 import { marcarSinalDoWebhook, registrarQueda } from "@/lib/comm/pulso-do-webhook";
+import { sinalDoPulso } from "@/lib/comm/pulso-regra";
 import { motivoDaQueda, quedaTemCura } from "@/lib/comm/pulso-regra";
 import { adCode, campanhaDoAnuncio } from "@/lib/ad-match";
 import { formatPhone } from "@/lib/format";
@@ -332,16 +333,20 @@ export async function POST(
   const companyId = settings.companyId;
   const event = body.event.toLowerCase().replace(/_/g, ".");
 
-  // RN-106 · O PULSO: mensagem chegando pelo webhook prova que o caminho está
-  // vivo — inclusive o ECO do que a loja acabou de enviar, que é o que o
-  // teste do eco espera. Só `messages.upsert` conta: é o aviso que traz as
-  // mensagens das clientes, e um caminho que ainda entrega recibos mas
-  // perdeu as mensagens não pode passar por vivo. Depois da resposta (não
-  // atrasa a mensagem da cliente), com a hora em que o aviso CHEGOU — a
-  // gravação condicionada aguenta chegar depois do envio. Nunca lança.
-  if (event === "messages.upsert") {
+  // RN-106 · O PULSO: aviso de mensagem chegando pelo webhook prova que o
+  // caminho está vivo. Dois avisos contam: `messages.upsert` (a mensagem de
+  // uma cliente, ou a que a loja mandou pelo CELULAR) e `send.message` — o
+  // ECO do que a loja enviou PELO SISTEMA, que é o que o teste do eco espera
+  // (o servidor não manda upsert para o que sai pela API; esperar por ele foi
+  // o alarme falso de 03–18/11/2026). Recibos e avisos de contato não contam:
+  // um caminho que ainda entrega recibos mas perdeu as mensagens não pode
+  // passar por vivo. Depois da resposta (não atrasa a mensagem da cliente),
+  // com a hora em que o aviso CHEGOU — a gravação condicionada aguenta chegar
+  // depois do envio. Nunca lança.
+  const sinal = sinalDoPulso(event);
+  if (sinal.conta) {
     const chegouEm = new Date();
-    after(() => marcarSinalDoWebhook(companyId, chegouEm));
+    after(() => marcarSinalDoWebhook(companyId, chegouEm, { ecoDeEnvio: sinal.ecoDeEnvio }));
   }
 
   // A LOJA CONECTADA ANTES DE UM EVENTO NOVO É REASSINADA DE CARONA: depois
