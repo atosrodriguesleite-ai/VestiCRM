@@ -5494,6 +5494,13 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   teste falhar. (4) **Dois tamanhos**: A4 com o bloco de 100 mm no canto
   superior direito, em tamanho real, para recortar e colar (padrão), e
   página de 10 × 15 cm para impressora de etiqueta (`?formato=etiqueta`).
+  **Na tela são DOIS BOTÕES com o nome do papel** ("DANFE em etiqueta 10 ×
+  15 cm" e "DANFE em folha A4", 18/11/2026, relato do dono com o print da
+  Zebra ZD220): o botão grande abria o A4 e a versão de etiqueta era um link
+  miúdo ao lado — ele mandou o A4 para a Zebra, o bloco saiu cortado, e
+  diminuir a escala para caber estraga o código de barras (o módulo de 0,25
+  mm deixa de fechar em pontos inteiros); a tela diz para imprimir em
+  tamanho real (escala 100%).
   **Onde aparece**: no painel da nota do pedido quando ela está AUTORIZADA
   (gerência, a régua do painel) e no painel de Envio quando a etiqueta foi
   comprada com a nota — quem vê o pedido (RN-007) imprime; a rota recorta
@@ -5521,7 +5528,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   barras — com a amostra de outra biblioteca, barra por barra —, leitura do
   XML, campos da norma, a busca no Bling) e
   `danfe-simplificado-rota.test.ts` (a porta, com o Bling simulado: nota
-  cancelada lá, etiqueta de outra nota, quem não vê o pedido).
+  cancelada lá, etiqueta de outra nota, quem não vê o pedido) e
+  `danfe-simplificado.test.tsx` (os dois botões na tela, em jsdom).
   **RN-019 · Pacote por categoria e simulador de frete**
   (`lib/envios/pacote.ts` + `lib/envios/simulador.ts`): cada categoria guarda
   o peso e as **medidas de 1 peça dobrada**
